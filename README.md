@@ -1,4 +1,4 @@
 wxgame2
 =======
 
-python game frame work using wxpython
+python game framework using wxpython
