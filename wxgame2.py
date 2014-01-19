@@ -32,32 +32,27 @@ Version = '1.6.10'
 
 import sys
 import os.path
-srcdir = os.path.dirname(os.path.abspath(sys.argv[0]))
-sys.path.append(os.path.join(os.path.split(srcdir)[0], 'kaswlib'))
-from kaswlib import *
-from kaswxlib import *
 
 from euclid import Vector2
+
 import wx
 import wx.grid
 import wx.lib.colourdb
 import os
-import sys
-import os.path
 import time
 import math
 import random
 import itertools
-import calendar
 import pprint
-import signal
-import zlib
 import cPickle as pickle
 # def handler(signum, frame):
 #    print 'Signal handler called with signal', signum
 # signal.signal(signal.SIGTERM, handler)
 # signal.signal(signal.SIGHUP, handler)
 # signal.signal(signal.SIGINT, handler)
+
+from wxgamelib import *
+
 
 g_rcs = GameResource('resource')
 
