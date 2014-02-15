@@ -413,13 +413,13 @@ class GameObject(MoveBounceSprite):
                 'radiusSpeed': 0,
                 "pen": None,
                 "brush": None,
-                "memorydcs":  [],
-                "dcsize":  None,
-                "startimagenumber":  0,
-                "animationfps":  10,
+                "memorydcs": [],
+                "dcsize": None,
+                "startimagenumber": 0,
+                "animationfps": 10,
             },
-            "afterremovefn":  None,
-            "afterremovefnarg":  (),
+            "afterremovefn": None,
+            "afterremovefnarg": (),
         }
         self.loadArgs(kwds, argsdict)
         self.baseCollisionCricle = self.collisionCricle
@@ -1359,12 +1359,12 @@ class AI2(ShootingAI):
 
 class AI0Test(ShootingAI):
 
-    def __init__(self, *args, **kwds):
-        def setAttr(name, defaultvalue):
-            self.__dict__[name] = kwds.pop(name, defaultvalue)
-            return self.__dict__[name]
-        setAttr("posnumber", 0)
-        ShootingAI.__init__(self, *args, **kwds)
+    # def __init__(self, *args, **kwds):
+    #     def setAttr(name, defaultvalue):
+    #         self.__dict__[name] = kwds.pop(name, defaultvalue)
+    #         return self.__dict__[name]
+    #     setAttr("posnumber", 0)
+    #     ShootingAI.__init__(self, *args, **kwds)
 
     def SelectAction(self, aimingtargetlist, src):
         # super 로 맞춰야햘 type
@@ -1393,23 +1393,6 @@ class AI0Test(ShootingAI):
         )
         return self.mapPro2Act(actions, True)
 
-    def addMember(self, newpos):
-        self.statistic['act']['bounceball'] += 1
-        self.statistic['act']['total'] += 1
-        target = self.AddBouncBall(
-            random.choice(self.balldcs),
-            pos=[
-                Vector2(.5, .5),
-                Vector2(0, 0),
-                Vector2(0, 1),
-                Vector2(1, 0),
-                Vector2(1, 1),
-            ][self.posnumber],
-            movevector=Vector2(0, 0)
-        )[0]
-        # target.level = 1
-        target.fireTimeDict = {}
-
 
 class AI0Inner(AI0Test):
 
@@ -1422,28 +1405,6 @@ class AI0Inner(AI0Test):
         )
         return self.mapPro2Act(actions, True)
 
-    def addMember(self, newpos):
-        self.statistic['act']['bounceball'] += 1
-        self.statistic['act']['total'] += 1
-        o = ShootingGameObject(
-            secToLifeEnd=-1.0,
-            pos=Vector2(0.5, 0.5) + Vector2.rect(0.3, 0),
-            movefn=ShootingGameObject.Move_Circle,
-            movefnargs={
-                "anglespeed": 0.5,
-            },
-            wallactionfn=ShootingGameObject.WallAction_Wrap,
-            shapefn=ShootingGameObject.ShapeChange_None,
-            collisionCricle=0.02,
-            shapefnargs={
-                'memorydcs': random.choice(self.balldcs),
-            },
-            objtype="bounceball",
-            group=self,
-            level=1,
-        )
-        self.insert(0, o)
-        o.fireTimeDict = {}
 
 # 주 canvas class 들 wxPython전용.
 
@@ -1496,7 +1457,7 @@ class wxGameContentsControl(wx.Control, FPSlogic):
     def _OnPaint(self, evt):
         # if self.GetParent().noanimation:
         #    return
-        # pdc = wx.AutoBufferedPaintDC(self)
+        #pdc = wx.AutoBufferedPaintDC(self)
         pdc = wx.BufferedPaintDC(self)
         self.DrawToWxDC(pdc)
 

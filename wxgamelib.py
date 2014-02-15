@@ -32,6 +32,25 @@ def random2pi(m=2):
     return math.pi * m * (random.random() - 0.5)
 
 
+def getHMSAngle(mst, hands):
+    """ clock hands angle
+    0 : hour
+    1 : minute
+    2 : second
+    mst = time.time()"""
+
+    lt = time.localtime(mst)
+    ms = mst - int(mst)
+    if hands == 0:  # hour
+        return math.radians(lt[3] * 30.0 + lt[4] / 2.0 + lt[5] / 120.0 + 90)
+    elif hands == 1:  # minute
+        return math.radians(lt[4] * 6.0 + lt[5] / 10.0 + ms / 10 + 90)
+    elif hands == 2:  # second
+        return math.radians(lt[5] * 6.0 + ms * 6 + 90)
+    else:
+        return None
+
+
 class Statistics(object):
 
     def __init__(self):
