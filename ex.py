@@ -43,8 +43,9 @@ class exBase(ShootingGameControl):
 
     def __init__(self, *args, **kwds):
         wxGameContentsControl.__init__(self, *args, **kwds)
-        self.SetBackgroundColour(wx.Colour(0x0, 0x0, 0x0))
-        self.ClearBackground()
+        # self.SetBackgroundColour(wx.BLACK)
+        # self.SetBackgroundStyle(wx.BG_STYLE_COLOUR)
+        # self.ClearBackground()
 
         self.backgroup = None
         self.scoreFn = self.doScoreSimple
@@ -78,7 +79,11 @@ class exBase(ShootingGameControl):
 
     def _OnPaint(self, evt):
         #pdc = wx.AutoBufferedPaintDC(self)
-        pdc = wx.PaintDC(self)
+        pdc = wx.BufferedPaintDC(self)
+
+        pdc.SetBackground(wx.BLACK_BRUSH)
+        pdc.Clear()
+
         self.DrawToWxDC(pdc)
 
     def doFPSlogic(self, frameinfo):
@@ -720,8 +725,9 @@ class ex14(exBase):
 
 
 def runEx(exobj):
-    app = wx.PySimpleApp(0)
-    wx.InitAllImageHandlers()
+    #app = wx.PySimpleApp(0)
+    app = wx.App()
+    # wx.InitAllImageHandlers()
     frame_1 = MyFrameBase(None, -1, "", size=(1000, 1000), exclass=exobj)
     app.SetTopWindow(frame_1)
     frame_1.Show()
@@ -754,6 +760,7 @@ if __name__ == "__main__":
     """
     try:
         clsobj = rundict[sys.argv[1]]
-        runEx(clsobj)
     except:
         print helpdoc
+        sys.exit()
+    runEx(clsobj)

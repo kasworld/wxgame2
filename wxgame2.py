@@ -1869,7 +1869,7 @@ class ShootingGameControl(wxGameContentsControl):
 
     def __init__(self, *args, **kwds):
         wxGameContentsControl.__init__(self, *args, **kwds)
-        self.SetBackgroundColour(wx.Colour(0xff, 0xff, 0xff))
+        self.SetBackgroundColour(wx.Colour(0x0, 0x0, 0x0))
 
         self.backgroup = GameObjectGroup()
         self.backgroup.append(
@@ -2226,8 +2226,9 @@ class MyFrame(wx.Frame):
 
 
 def runtest():
-    app = wx.PySimpleApp(0)
-    wx.InitAllImageHandlers()
+    app = wx.App()
+    # app = wx.PySimpleApp(0)
+    # wx.InitAllImageHandlers()
     frame_1 = MyFrame(None, -1, "", size=(1400, 1000))
     app.SetTopWindow(frame_1)
     frame_1.Show()
