@@ -77,8 +77,8 @@ class exBase(ShootingGameControl):
         self.dispgroup.append(self.backgroup)
 
     def _OnPaint(self, evt):
-        pdc = wx.AutoBufferedPaintDC(self)
-        # pdc = wx.BufferedPaintDC(self)
+        #pdc = wx.AutoBufferedPaintDC(self)
+        pdc = wx.PaintDC(self)
         self.DrawToWxDC(pdc)
 
     def doFPSlogic(self, frameinfo):

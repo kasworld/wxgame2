@@ -1419,20 +1419,17 @@ class AI0Random(ShootingAI):
         return self.mapPro2Act(actions, True)
 
 
-
 # 주 canvas class 들 wxPython전용.
-
-
 class wxGameContentsControl(wx.Control, FPSlogic):
     randteam = [
-        {"resource": "white", "color": wx.Color(0xff, 0xff, 0xff)},
-        {"resource": "orange", "color": wx.Color(0xff, 0x7f, 0x00)},
-        {"resource": "purple", "color": wx.Color(0xff, 0x00, 0xff)},
-        {"resource": "grey", "color": wx.Color(0x7f, 0x7f, 0x7f)},
-        {"resource": "red", "color": wx.Color(0xff, 0x00, 0x00)},
-        {"resource": "yellow", "color": wx.Color(0xff, 0xff, 0x00)},
-        {"resource": "green", "color": wx.Color(0x00, 0xff, 0x00)},
-        {"resource": "blue", "color": wx.Color(0x00, 0xff, 0xff)},
+        {"resource": "white", "color": wx.Colour(0xff, 0xff, 0xff)},
+        {"resource": "orange", "color": wx.Colour(0xff, 0x7f, 0x00)},
+        {"resource": "purple", "color": wx.Colour(0xff, 0x00, 0xff)},
+        {"resource": "grey", "color": wx.Colour(0x7f, 0x7f, 0x7f)},
+        {"resource": "red", "color": wx.Colour(0xff, 0x00, 0x00)},
+        {"resource": "yellow", "color": wx.Colour(0xff, 0xff, 0x00)},
+        {"resource": "green", "color": wx.Colour(0x00, 0xff, 0x00)},
+        {"resource": "blue", "color": wx.Colour(0x00, 0xff, 0xff)},
     ]
 
     def __init__(self, *args, **kwds):
