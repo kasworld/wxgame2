@@ -730,30 +730,30 @@ def runEx(exobj):
 
 if __name__ == "__main__":
     rundict = {
-        '00': ex00,
-        '01': ex01,
-        '02': ex02,
-        '03': ex03,
-        '04': ex04,
-        '05': ex05,
-        '06': ex06,
-        '07': ex07,
-        '08': ex08,
-        '09': ex09,
-        '10': ex10,
-        '11': ex11,
-        '12': ex12,
-        '13': ex13,
-        '14': ex14
+        'ex00': ex00,
+        'ex01': ex01,
+        'ex02': ex02,
+        'ex03': ex03,
+        'ex04': ex04,
+        'ex05': ex05,
+        'ex06': ex06,
+        'ex07': ex07,
+        'ex08': ex08,
+        'ex09': ex09,
+        'ex10': ex10,
+        'ex11': ex11,
+        'ex12': ex12,
+        'ex13': ex13,
+        'ex14': ex14
     }
     helpdoc = """
     wxgame examples
     run as
-    python  ex.py NN
+    python exNN
     NN : 00 ~ 14
     """
     try:
-        clsobj = rundict[sys.argv[1]]
+        clsobj = rundict[ sys.argv[1] ]
         runEx(clsobj)
     except:
         print helpdoc

@@ -722,7 +722,7 @@ class GameObjectGroup(list):
     def AddBouncBall(self, memorydcs,
                      animationfps=30,
                      pos=Vector2(0.5, 0.5),
-                     movevector=Vector2.rect(0.17, random2pi()),
+                     movevector=Vector2(0, 0),
                      movelimit=1.0,
                      thistick=None
                      ):
@@ -1041,7 +1041,8 @@ class GameChar(GameObjectGroup):
         target = self.AddBouncBall(
             random.choice(self.balldcs),
             pos=newpos,
-            movevector=Vector2.rect(0.17, random2pi()),
+            #movevector=Vector2.rect(0.17, random2pi()),
+            movevector=Vector2(0, 0),
             movelimit=self.getSpeedByType("bounceball"),
         )[0]
         # target.level = 1
@@ -1368,12 +1369,12 @@ class AI0Test(ShootingAI):
 
     def SelectAction(self, aimingtargetlist, src):
         # super 로 맞춰야햘 type
-        dangertarget, dangerlen = self.findTarget(src, [
-                                                  'bounceball', 'superbullet', 'hommingbullet'], src.lento, aimingtargetlist)
+        dangertarget, dangerlen = self.findTarget(
+            src, ['bounceball', 'superbullet', 'hommingbullet'], src.lento, aimingtargetlist)
 
         # bullet 로 맞춰야할 type
-        neartarget, nearlen = self.findTarget(src, [
-                                              'bounceball'], src.lento, aimingtargetlist)
+        neartarget, nearlen = self.findTarget(
+            src, ['bounceball'], src.lento, aimingtargetlist)
 
         accelvector = Vector2.rect(random.random() / 14.0, random2pi())
 
@@ -1394,7 +1395,7 @@ class AI0Test(ShootingAI):
         return self.mapPro2Act(actions, True)
 
 
-class AI0Inner(AI0Test):
+class AI0Inner(ShootingAI):
 
     def SelectAction(self, aimingtargetlist, src):
         accelvector = (Vector2(0.5, 0.5) - src.pos).normalized() / 20.0
@@ -1404,6 +1405,19 @@ class AI0Inner(AI0Test):
             ("accel", 0.5, accelvector),
         )
         return self.mapPro2Act(actions, True)
+
+
+class AI0Random(ShootingAI):
+
+    def SelectAction(self, aimingtargetlist, src):
+        accelvector = Vector2.rect(random.random() / 14.0, random2pi())
+
+        actions = (
+            # action, probability, object
+            ("accel", 0.5, accelvector),
+        )
+        return self.mapPro2Act(actions, True)
+
 
 
 # 주 canvas class 들 wxPython전용.
