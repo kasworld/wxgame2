@@ -1,0 +1,1 @@
+..\ppython\App\python.exe wxgame2.py

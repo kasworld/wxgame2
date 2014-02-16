@@ -758,9 +758,12 @@ if __name__ == "__main__":
     python  ex.py NN
     NN : 00 ~ 14
     """
-    try:
-        clsobj = rundict[sys.argv[1]]
-    except:
+    while True:
         print helpdoc
-        sys.exit()
-    runEx(clsobj)
+        exnum = raw_input()
+        try:
+            clsobj = rundict[exnum]
+        except:
+            print helpdoc
+            sys.exit()
+        runEx(clsobj)
