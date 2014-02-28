@@ -24,6 +24,7 @@ import itertools
 import pprint
 import cPickle as pickle
 import zlib
+import copy
 try:
     import simplejson as json
 except:
@@ -37,6 +38,10 @@ getSerial = itertools.count().next
 
 def random2pi(m=2):
     return math.pi * m * (random.random() - 0.5)
+
+
+def getFrameTime():
+    return time.time()
 
 
 class Statistics(object):
@@ -57,7 +62,7 @@ class Statistics(object):
         self.datadict['count'] += 1
         self.datadict['sum'] += data
 
-        if self.datadict['last'] != None:
+        if self.datadict['last'] is not None:
             self.datadict['min'] = min(self.datadict['min'], data)
             self.datadict['max'] = max(self.datadict['max'], data)
             self.datadict['avg'] = self.datadict[
@@ -129,7 +134,7 @@ class FPSlogic(object):
 
         frameinfo = {
             "ThisFPS": 1 / difftime,
-            "sec":  difftime,
+            "sec": difftime,
             "FPS": fps,
             'stat': self.statFPS
         }
@@ -151,55 +156,42 @@ class FPSlogic(object):
         pass
 
 
-def getFrameTime():
-    return time.time()
+class FastStorage(dict):
+
+    """from gluon storage.py """
+
+    def __init__(self, *args, **kwargs):
+        dict.__init__(self, *args, **kwargs)
+        self.__dict__ = self
+
+    def __getattr__(self, key):
+        return getattr(self, key) if key in self else None
+
+    def __getitem__(self, key):
+        return dict.get(self, key, None)
+
+    def copy(self):
+        self.__dict__ = {}
+        s = FastStorage(self)
+        self.__dict__ = self
+        return s
+
+    def __repr__(self):
+        return '<Storage %s>' % dict.__repr__(self)
+
+    def __getstate__(self):
+        return dict(self)
+
+    def __setstate__(self, sdict):
+        dict.__init__(self, sdict)
+        self.__dict__ = self
+
+    def update(self, *args, **kwargs):
+        dict.__init__(self, *args, **kwargs)
+        self.__dict__ = self
 
 
-class DictAsProperty2(dict):
-    validFields = {
-    }
-
-    def __init__(self, data=None):
-        if data:
-            dict.__setattr__(self, 'validFields', data.copy())
-            dict.__init__(self, data)
-        else:
-            dict.__init__(self, self.validFields)
-
-    def __getitem__(self, name):
-        if name in self.validFields:
-            return dict.__getitem__(self, name)
-        raise AttributeError(name)
-
-    def __getattr__(self, name):
-        if name in self.validFields:
-            return dict.__getitem__(self, name)
-        raise AttributeError(name)
-
-    def __setitem__(self, name, value):
-        if name in self.validFields:
-            dict.__setitem__(self, name, value)
-            return self
-        raise AttributeError(name)
-
-    def __setattr__(self, name, value):
-        if name in self.validFields:
-            dict.__setitem__(self, name, value)
-            return self
-        raise AttributeError(name)
-
-
-class MoveFnArgs(DictAsProperty2):
-    validFields = {
-        "accelvector": Vector2(0, 0),
-        "handstype": 0,
-        "targetobj": None,
-        "diffvector": Vector2(0, 0),
-        "anglespeed": 0.0,
-    }
-
-
-class SpriteObj(DictAsProperty2):
+class SpriteObj(FastStorage):
     validFields = {
         'ID': 0,
         "enabled": True,
@@ -214,25 +206,51 @@ class SpriteObj(DictAsProperty2):
         "movefn": None,
         "movevector": Vector2(0, 0),
         "movelimit": 1.0,
-        "movefnargs": MoveFnArgs(),
+        "movefnargs": {
+            "accelvector": Vector2(0, 0),
+            "handstype": 0,
+            "targetobj": None,
+            "diffvector": Vector2(0, 0),
+            "anglespeed": 0.0,
+        },
         "wallactionfn": None,
         "bounceDamping": 1.,
         "weight": 1,
         "afterremovefn": None,
-        "afterremovefnarg": (),
+        "afterremovefnarg": [],
 
         "level": 0,
         "group": None,
         'lastAutoMoveTick': 0,
-        'autoMoveFns': []
+        'autoMoveFns': [],
+        'fireTimeDict': {},
+        'thistick': 0,
     }
 
+    def __init__(self, params={}):
+        FastStorage.__init__(self)
+        self.update(copy.deepcopy(self.validFields))
+
+        self.ID = getSerial()
+        self.createdTime = getFrameTime()
+        self.lastAutoMoveTick = self.createdTime
+        if params.get('objtype') in SpriteLogic.typeDefaultDict:
+            self.loadArgs(SpriteObj.typeDefaultDict[params.get('objtype')])
+        self.loadArgs(params)
+
     def loadArgs(self, params):
-        for n, v in params.iteritems():
-            if isinstance(v, dict):
-                self.__dict__[n].update(params.get(n))
+        for k, v in params.iteritems():
+            if k in ['movefnargs']:
+                self[k].update(v)
+            elif k in ['autoMoveFns']:
+                self[k] = v
             else:
-                self.__dict__[n] = params.get(n)
+                self[k] = v
+
+    def __str__(self):
+        return pprint.pformat(dict(self))
+    # def __hash__(self):
+    #     return self.ID
 
 
 # game에 쓸 object 관련 class 들
@@ -248,45 +266,19 @@ class SpriteLogic(SpriteObj):
     movefn, move, check wall 순으로 일어남.
     """
 
-    def __init__(self, params={}):
+    def __init__(self, params):
         SpriteObj.__init__(self)
-        # argsdict = {
-        #     "enabled": True,
-        #     "visible": True,
-        #     "pos": Vector2(0.5, 0.5),
-        #     "objtype": None,
-        #     "collisionCricle": 0.01,
-        #     "secToLifeEnd": 10.0,
-        #     "createdTime": 0,
-        #     "expireFn": None,
-
-        #     "movefn": SpriteLogic.Move_NoAccel,
-        #     "movevector": Vector2(0, 0),
-        #     "movelimit": 1.0,
-        #     "movefnargs": {
-        #         "accelvector": Vector2(0, 0),
-        #         "handstype": 0,
-        #         "targetobj": None,
-        #         "diffvector": Vector2(0, 0),
-        #         "anglespeed": 0.0,
-        #     },
-        #     "wallactionfn": SpriteLogic.WallAction_Remove,
-        #     "bounceDamping": 1.,
-        #     "weight": 1,
-        #     "afterremovefn": None,
-        #     "afterremovefnarg": (),
-
-        #     "level": 0,
-        #     "group": None
-        # }
-        self.loadArgs(params)
-        self.ID = getSerial()
-        self.createdTime = getFrameTime()
-        self.lastAutoMoveTick = self.createdTime
         #self.autoMoveFns = []
         self.registerAutoMoveFn(self.movefn, [])
         self.registerAutoMoveFn(SpriteLogic.Move_byMoveVector, [])
         self.registerAutoMoveFn(self.wallactionfn, [])
+
+        # pprint.pprint(self)
+
+    def registerAutoMoveFn(self, fn, args=[]):
+        if fn is not None:
+            self.autoMoveFns.append([fn, args])
+        return self
 
     def lento(self, target):
         return abs(target.pos - self.pos)
@@ -322,11 +314,6 @@ class SpriteLogic(SpriteObj):
 
     def getLifeRate(self, tick):
         return (tick - self.createdTime) / self.secToLifeEnd
-
-    def registerAutoMoveFn(self, fn, args=[]):
-        if fn is not None:
-            self.autoMoveFns.append((fn, args))
-        return self
 
     def AutoMoveByTime(self, thistick):
         if not self.enabled:
@@ -470,7 +457,8 @@ class SpriteLogic(SpriteObj):
         # return factor
 
     # def __str__(self):
-    #     return pprint.pformat([self.objtype, self.pos, self.movevector, self.movefnargs])
+    # return pprint.pformat([self.objtype, self.pos, self.movevector,
+    # self.movefnargs])
 
     def checkCollisionAppend(self, target, rtnobjs, rule):
         """
@@ -483,6 +471,85 @@ class SpriteLogic(SpriteObj):
                 rtnobjs.setdefault(self, set()).add(target)
             if self.objtype in rule[target.objtype]:
                 rtnobjs.setdefault(target, set()).add(self)
+
+
+SpriteObj.typeDefaultDict = {
+    "circularbullet": {
+        "objtype": 'circularbullet',
+        'secToLifeEnd': 10.0,
+        'speed': 0.4,
+        'collisionCricle': 0.004,
+        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
+    },
+    "superbullet": {
+        "objtype": 'superbullet',
+        'secToLifeEnd': 10.0,
+        'speed': 0.6,
+        'collisionCricle': 0.032,
+        'collisionTarget': ['supershield', 'superbullet', 'hommingbullet'],
+    },
+    "hommingbullet": {
+        "objtype": 'hommingbullet',
+        'secToLifeEnd': 10.0,
+        'speed': 0.3,
+        'collisionCricle': 0.016,
+        'collisionTarget': ['supershield', 'superbullet', 'hommingbullet'],
+    },
+    "bullet": {
+        "objtype": 'bullet',
+        'secToLifeEnd': 10.0,
+        'speed': 0.5,
+        'collisionCricle': 0.008,
+        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
+    },
+    "bounceball": {
+        "objtype": 'bounceball',
+        'secToLifeEnd': -1.0,
+        'speed': 0.3,
+        "movelimit": 1.0,
+        'collisionCricle': 0.016,
+        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
+        'bounceDamping': 1.0,
+        "level": 1,
+    },
+    "shield": {
+        "objtype": 'shield',
+        'secToLifeEnd': -1.0,
+        'speed': 0.3,
+        'collisionCricle': 0.008,
+        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
+        'bounceDamping': 1.0,
+        "movefnargs": {
+            "anglespeed": 0.05,
+            'movefn': SpriteLogic.Move_SyncTarget,
+        },
+    },
+    "supershield": {
+        "objtype": 'supershield',
+        'secToLifeEnd': 10.0,
+        'speed': 0.3,
+        'collisionCricle': 0.011,
+        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
+        'bounceDamping': 1.0,
+        "movefnargs": {
+            "anglespeed": 0.05,
+            'movefn': SpriteLogic.Move_SyncTarget,
+        },
+    },
+    "effect": {
+        "objtype": 'effect',
+        'secToLifeEnd': 1.0,
+        'collisionCricle': 0,
+        'collisionTarget': [],
+    },
+    "background": {
+        "objtype": 'background',
+        "movelimit": 0.1,
+        'secToLifeEnd': -1.0,
+        'collisionCricle': 0,
+        'collisionTarget': [],
+    },
+}
 
 
 # game object group 관련 class들
@@ -546,6 +613,33 @@ class GameObjectGroup(list):
         }
         self.makeMember()
 
+    def makeMember(self):
+        while len(self) < self.membercount or self[self.membercount - 1].objtype != "bounceball":
+            self.addMember(Vector2(random.random(), random.random()))
+
+    def addMember(self, newpos):
+        self.statistic['act']['bounceball'] += 1
+        self.statistic['act']['total'] += 1
+        target = self.AddBouncBall(
+            pos=newpos,
+            movevector=Vector2(0, 0),
+            movelimit=self.getSpeedByType("bounceball"),
+        )[0]
+        # target.level = 1
+        target.fireTimeDict = {}
+        if self.enableshield:
+            self.statistic['act']['shield'] += 1
+            for i, a in enumerate(range(0, 360, 30)):
+                self.AddShield(
+                    # self.earthmemorydcs if i % 2 == 0 else
+                    # self.earthmemorydcsr,
+                    None,
+                    diffvector=Vector2(0.03, 0).addAngle(
+                        2 * math.pi * a / 360.0),
+                    target=target,
+                    anglespeed=math.pi if i % 2 == 0 else -math.pi)
+        return target
+
     def AutoMoveByTime(self, thistick):
         for a in self:
             a.AutoMoveByTime(thistick)
@@ -603,7 +697,7 @@ class GameObjectGroup(list):
         if not thistick:
             thistick = getFrameTime()
         for a in range(0, 360, 5):
-            o = SpriteLogic(
+            o = SpriteLogic(dict(
                 secToLifeEnd=10.0,
                 createdTime=thistick,
                 collisionCricle=0.004,
@@ -615,14 +709,14 @@ class GameObjectGroup(list):
                 wallactionfn=SpriteLogic.WallAction_Remove,
                 objtype="circularbullet",
                 group=self,
-            )
+            ))
             self.append(o)
         return self
 
     def AddTargetFiredBullet(self, startpos, tagetpos, thistick=None):
         if not thistick:
             thistick = getFrameTime()
-        o = SpriteLogic(
+        o = SpriteLogic(dict(
             secToLifeEnd=10.0,
             createdTime=thistick,
             collisionCricle=0.008,
@@ -634,14 +728,14 @@ class GameObjectGroup(list):
             wallactionfn=SpriteLogic.WallAction_Remove,
             objtype="bullet",
             group=self,
-        )
+        ))
         self.append(o)
         return self
 
     def AddHommingBullet(self, startpos, target, thistick=None, expireFn=None):
         if not thistick:
             thistick = getFrameTime()
-        o = SpriteLogic(
+        o = SpriteLogic(dict(
             secToLifeEnd=10.0,
             expireFn=expireFn,
             createdTime=thistick,
@@ -656,14 +750,14 @@ class GameObjectGroup(list):
             wallactionfn=SpriteLogic.WallAction_None,
             objtype="hommingbullet",
             group=self,
-        )
+        ))
         self.append(o)
         return self
 
     def AddTargetSuperBullet(self, startpos, tagetpos, thistick=None):
         if not thistick:
             thistick = getFrameTime()
-        o = SpriteLogic(
+        o = SpriteLogic(dict(
             secToLifeEnd=10.0,
             createdTime=thistick,
             collisionCricle=0.032,
@@ -675,7 +769,7 @@ class GameObjectGroup(list):
             wallactionfn=SpriteLogic.WallAction_Remove,
             objtype="superbullet",
             group=self,
-        )
+        ))
         self.append(o)
         return self
 
@@ -696,8 +790,8 @@ class GameObjectGroup(list):
             group=self,
             level=1,
         )
-        argdict.update(kwargs)
-        o = SpriteLogic(**argdict)
+        o = SpriteLogic(argdict)
+        o.loadArgs(kwargs)
         self.insert(0, o)
         return self
 
@@ -710,7 +804,7 @@ class GameObjectGroup(list):
                   ):
         if not thistick:
             thistick = getFrameTime()
-        o = SpriteLogic(
+        o = SpriteLogic(dict(
             secToLifeEnd=-1.0,
             createdTime=thistick,
             collisionCricle=0.008,
@@ -722,7 +816,7 @@ class GameObjectGroup(list):
             wallactionfn=SpriteLogic.WallAction_None,
             objtype="shield",
             group=self,
-        )
+        ))
         self.append(o)
         return self
 
@@ -736,7 +830,7 @@ class GameObjectGroup(list):
                        ):
         if not thistick:
             thistick = getFrameTime()
-        o = SpriteLogic(
+        o = SpriteLogic(dict(
             secToLifeEnd=10.0,
             expireFn=expireFn,
             createdTime=thistick,
@@ -749,7 +843,7 @@ class GameObjectGroup(list):
             wallactionfn=SpriteLogic.WallAction_None,
             objtype="supershield",
             group=self,
-        )
+        ))
         self.append(o)
         return self
 
@@ -763,7 +857,7 @@ class GameObjectGroup(list):
         if not thistick:
             thistick = getFrameTime()
         self.append(
-            SpriteLogic(
+            SpriteLogic(dict(
                 pos=pos,
                 secToLifeEnd=dur,
                 createdTime=thistick,
@@ -776,7 +870,7 @@ class GameObjectGroup(list):
                 afterremovefnarg=afterremovefnarg,
                 objtype="effect",
                 group=self,
-            )
+            ))
         )
         return self
 
@@ -791,10 +885,6 @@ class GameObjectGroup(list):
     """
     주 오브젝트와 그에 종속되는 shield, bullet 들
     """
-
-    def makeMember(self):
-        while len(self) < self.membercount or self[self.membercount - 1].objtype != "bounceball":
-            self.addMember(Vector2(random.random(), random.random()))
 
     def addBallExplosionEffect(self, effectObjs, g1, b):
         # pprint.pprint(("addBallExplosionEffect", self, g1))
@@ -818,29 +908,6 @@ class GameObjectGroup(list):
             afterremovefn=g1.addMember,
             afterremovefnarg=(newpos,)
         )
-
-    def addMember(self, newpos):
-        self.statistic['act']['bounceball'] += 1
-        self.statistic['act']['total'] += 1
-        target = self.AddBouncBall(
-            pos=newpos,
-            movevector=Vector2(0, 0),
-            movelimit=self.getSpeedByType("bounceball"),
-        )[0]
-        # target.level = 1
-        target.fireTimeDict = {}
-        if self.enableshield:
-            self.statistic['act']['shield'] += 1
-            for i, a in enumerate(range(0, 360, 30)):
-                self.AddShield(
-                    # self.earthmemorydcs if i % 2 == 0 else
-                    # self.earthmemorydcsr,
-                    None,
-                    diffvector=Vector2(0.03, 0).addAngle(
-                        2 * math.pi * a / 360.0),
-                    target=target,
-                    anglespeed=math.pi if i % 2 == 0 else -math.pi)
-        return target
 
     # AI start funcion
     def FireAndAutoMoveByTime(self, aimingtargetlist, thisFPS=60, thistick=0):
@@ -1176,27 +1243,18 @@ class AI0Random(GameObjectGroup):
 
 
 class ShootingGameControl(FPSlogic):
-    randteam = [
-        {"resource": "white", "color": (0xff, 0xff, 0xff)},
-        {"resource": "orange", "color": (0xff, 0x7f, 0x00)},
-        {"resource": "purple", "color": (0xff, 0x00, 0xff)},
-        {"resource": "grey", "color": (0x7f, 0x7f, 0x7f)},
-        {"resource": "red", "color": (0xff, 0x00, 0x00)},
-        {"resource": "yellow", "color": (0xff, 0xff, 0x00)},
-        {"resource": "green", "color": (0x00, 0xff, 0x00)},
-        {"resource": "blue", "color": (0x00, 0xff, 0xff)},
-    ]
 
-    def __init__(self, *args, **kwds):
-        def setAttr(name, defaultvalue):
-            self.__dict__[name] = kwds.pop(name, defaultvalue)
-            return self.__dict__[name]
-
-        self.dispgroup = []
-        self.FPSTimerInit(70)
-
-        self.effectObjs = GameObjectGroup()
-
+    def makeTeam(self):
+        randteam = [
+            {"resource": "white", "color": (0xff, 0xff, 0xff)},
+            {"resource": "orange", "color": (0xff, 0x7f, 0x00)},
+            {"resource": "purple", "color": (0xff, 0x00, 0xff)},
+            {"resource": "grey", "color": (0x7f, 0x7f, 0x7f)},
+            {"resource": "red", "color": (0xff, 0x00, 0x00)},
+            {"resource": "yellow", "color": (0xff, 0xff, 0x00)},
+            {"resource": "green", "color": (0x00, 0xff, 0x00)},
+            {"resource": "blue", "color": (0x00, 0xff, 0xff)},
+        ]
         teams = [
             {"AIClass": AI2, "teamname": 'team0', 'resource': 0},
             {"AIClass": AI2, "teamname": 'team1', 'resource': 1},
@@ -1207,12 +1265,12 @@ class ShootingGameControl(FPSlogic):
             {"AIClass": AI2, "teamname": 'team6', 'resource': 6},
             {"AIClass": AI2, "teamname": 'team7', 'resource': 7},
         ] * 1
-        self.objplayers = []
-        for sel, d in zip(itertools.cycle(self.randteam), teams):
+        teamobjs = []
+        for sel, d in zip(itertools.cycle(randteam), teams):
             selpos = d.get('resource', -1)
-            if selpos >= 0 and selpos < len(self.randteam):
-                sel = self.randteam[selpos]
-            self.objplayers.append(
+            if selpos >= 0 and selpos < len(randteam):
+                sel = randteam[selpos]
+            teamobjs.append(
                 d["AIClass"](
                     resource=sel["resource"],
                     teamcolor=sel["color"],
@@ -1220,20 +1278,32 @@ class ShootingGameControl(FPSlogic):
                     membercount=1,
                     # enableshield = False,
                     # inoutrate = d / 100.0,
-                    effectObjs=self.effectObjs,
+                    effectObjs=self.dispgroup['effectObjs'],
                 ))
+        return teamobjs
 
-        self.dispgroup.extend(self.objplayers)
-        self.dispgroup.append(self.effectObjs)
+    def __init__(self, *args, **kwds):
+        def setAttr(name, defaultvalue):
+            self.__dict__[name] = kwds.pop(name, defaultvalue)
+            return self.__dict__[name]
+
+        self.FPSTimerInit(70)
+        self.dispgroup = {}
+        self.dispgroup['backgroup'] = GameObjectGroup()
+        self.dispgroup['effectObjs'] = GameObjectGroup()
+        self.dispgroup['frontgroup'] = GameObjectGroup()
+        self.dispgroup['objplayers'] = self.makeTeam()
 
         nowstart = getFrameTime()
-        for dg in self.dispgroup:
+        for dg in self.dispgroup['objplayers']:
             for o in dg:
                 self.createdTime = nowstart
 
         self.statObjN = Statistics()
         self.statCmpN = Statistics()
         self.statPacketL = Statistics()
+
+        print 'end init'
 
     def makeCollisionDict(self):
         # 현재 위치를 기준으로 collision / interaction 검사하고
@@ -1250,7 +1320,7 @@ class ShootingGameControl(FPSlogic):
         }
         # get all collision list { src: [ t1, t1.. ], .. }
         buckets = []
-        for aa in self.objplayers:
+        for aa in self.dispgroup['objplayers']:
             bk = aa.makeCollisionBucket(
                 ['bounceball', 'shield', 'supershield', 'bullet',
                     'circularbullet', 'superbullet', 'hommingbullet'],
@@ -1279,7 +1349,7 @@ class ShootingGameControl(FPSlogic):
             if src.objtype == 'bounceball':
                 ischanagestatistic = True
                 src.group.addBallExplosionEffect(
-                    self.effectObjs, src.group, src)
+                    self.dispgroup['effectObjs'], src.group, src)
                 src.enabled = False
 
                 srcLostScore = src.getDelScore(math.sqrt(src.level))
@@ -1317,7 +1387,7 @@ class ShootingGameControl(FPSlogic):
 
             else:
                 src.enabled = False
-                self.effectObjs.addSpriteExplosionEffect(src)
+                self.dispgroup['effectObjs'].addSpriteExplosionEffect(src)
         return ischanagestatistic
 
     def doScore(self, resultdict):
@@ -1327,7 +1397,7 @@ class ShootingGameControl(FPSlogic):
             if src.objtype == 'bounceball':
                 ischanagestatistic = True
                 src.group.addBallExplosionEffect(
-                    self.effectObjs, src.group, src)
+                    self.dispgroup['effectObjs'], src.group, src)
                 src.enabled = False
 
                 srcLostScore = src.getDelScore(math.sqrt(src.level))
@@ -1367,7 +1437,8 @@ class ShootingGameControl(FPSlogic):
                                         0.06, 0).addAngle(random2pi()),
                                     target=target.group[0],
                                     anglespeed=random2pi(),
-                                    expireFn=self.effectObjs.addSpriteExplosionEffect
+                                    expireFn=self.dispgroup[
+                                        'effectObjs'].addSpriteExplosionEffect
                                 )
 
                     if target.objtype not in ['bounceball', 'supershield', 'shield']:
@@ -1376,17 +1447,17 @@ class ShootingGameControl(FPSlogic):
                                                                  "maxscore"], target.group.statistic["teamscore"])
             else:
                 src.enabled = False
-                self.effectObjs.addSpriteExplosionEffect(src)
+                self.dispgroup['effectObjs'].addSpriteExplosionEffect(src)
         return ischanagestatistic
 
     def doFireAndAutoMoveByTime(self, frameinfo):
         # 그룹내의 bounceball 들을 AI automove 한다.
         # 자신과 같은 팀을 제외한 targets을 만든다.
-        selmov = self.objplayers[:]
+        selmov = self.dispgroup['objplayers'][:]
         random.shuffle(selmov)
         for aa in selmov:
             targets = []
-            for bb in self.objplayers:
+            for bb in self.dispgroup['objplayers']:
                 if aa.teamname != bb.teamname:
                     targets.append(bb)
             aa.FireAndAutoMoveByTime(targets, frameinfo[
@@ -1403,7 +1474,7 @@ class ShootingGameControl(FPSlogic):
         ]
         """
         savelist = []
-        for og in self.dispgroup:
+        for og in self.dispgroup['objplayers']:
             teamname = None
             if hasattr(og, 'teamname'):
                 teamname = og.teamname
@@ -1423,13 +1494,14 @@ class ShootingGameControl(FPSlogic):
     def doFPSlogic(self, frameinfo):
         self.thistick = getFrameTime()
 
-        bb = ["%s:%s" % aa for aa in frameinfo.items()]
-        a = [len(b) for b in self.dispgroup]
-        titlestr = "Frame:%s obj:%s " % (bb, a)
+        # bb = ["%s:%s" % aa for aa in frameinfo.items()]
+        # a = [len(b) for b in self.dispgroup]
+        # titlestr = "Frame:%s obj:%s " % (bb, a)
         # self.GetParent().SetTitle(titlestr)
 
         self.frameinfo = frameinfo
-        self.frameinfo['objcount'] = sum([len(a) for a in self.objplayers])
+        self.frameinfo['objcount'] = sum(
+            [len(a) for a in self.dispgroup['objplayers']])
 
         self.statObjN.update(self.frameinfo['objcount'])
 
@@ -1443,10 +1515,11 @@ class ShootingGameControl(FPSlogic):
         # ischanagestatistic = self.doScoreSimple(resultdict)
 
         # 결과에 따라 삭제한다.
-        for aa in self.objplayers:
+        for aa in self.dispgroup['objplayers']:
             aa.RemoveDisabled()
 
-        self.effectObjs.AutoMoveByTime(self.thistick).RemoveDisabled()
+        self.dispgroup['effectObjs'].AutoMoveByTime(
+            self.thistick).RemoveDisabled()
 
         senddata = self.makeState()
         sendpickle = zlib.compress(pickle.dumps(senddata))
@@ -1460,94 +1533,33 @@ class ShootingGameControl(FPSlogic):
             print 'fps:', self.frameinfo['stat']
             # pprint.pprint(senddata)
 
-        return titlestr
+        return ''
 
 # object class data
-typeDefaultDict = {
-    "circularbullet": {
-        "objtype": 'circularbullet',
-        'secToLifeEnd': 10.0,
-        'speed': 0.4,
-        'collisionCricle': 0.004,
-        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-    },
-    "superbullet": {
-        "objtype": 'superbullet',
-        'secToLifeEnd': 10.0,
-        'speed': 0.6,
-        'collisionCricle': 0.032,
-        'collisionTarget': ['supershield', 'superbullet', 'hommingbullet'],
-    },
-    "hommingbullet": {
-        "objtype": 'hommingbullet',
-        'secToLifeEnd': 10.0,
-        'speed': 0.3,
-        'collisionCricle': 0.016,
-        'collisionTarget': ['supershield', 'superbullet', 'hommingbullet'],
-    },
-    "bullet": {
-        "objtype": 'bullet',
-        'secToLifeEnd': 10.0,
-        'speed': 0.5,
-        'collisionCricle': 0.008,
-        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-    },
-    "bounceball": {
-        "objtype": 'bounceball',
-        'secToLifeEnd': -1.0,
-        'speed': 0.3,
-        "movelimit": 1.0,
-        'collisionCricle': 0.016,
-        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-        'bounceDamping': 1.0,
-        "level": 1,
-    },
-    "shield": {
-        "objtype": 'shield',
-        'secToLifeEnd': -1.0,
-        'speed': 0.3,
-        'collisionCricle': 0.008,
-        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-        'bounceDamping': 1.0,
-        "movefnargs": {
-            "anglespeed": 0.05,
-            'movefn': SpriteLogic.Move_SyncTarget,
-        },
-    },
-    "supershield": {
-        "objtype": 'supershield',
-        'secToLifeEnd': 10.0,
-        'speed': 0.3,
-        'collisionCricle': 0.011,
-        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-        'bounceDamping': 1.0,
-        "movefnargs": {
-            "anglespeed": 0.05,
-            'movefn': SpriteLogic.Move_SyncTarget,
-        },
-    },
-    "effect": {
-        "objtype": 'effect',
-        'secToLifeEnd': 1.0,
-        'collisionCricle': 0,
-        'collisionTarget': [],
-    },
-    "background": {
-        "objtype": 'background',
-        "movelimit": 0.1,
-        'secToLifeEnd': -1.0,
-        'collisionCricle': 0,
-        'collisionTarget': [],
-    },
-}
 
 
 def doGame():
     game = ShootingGameControl()
-    while True:
-        game.FPSTimer()
+    pprint.pprint(game)
+    # pprint.pprint(game.makeTeam())
+    # while True:
+    #     game.FPSTimer()
+
+
+def test():
+    a = SpriteLogic({'objtype': 'bounceball'})
+    print a
+    b = SpriteLogic({'objtype': 'bounceball'})
+    print b
+    c = SpriteLogic({'objtype': 'bounceball'})
+    print c
+
+    print a
+
+
+def test2():
+    a = GameObjectGroup()
+    print a
 
 if __name__ == "__main__":
-    a = SpriteLogic()
-    print a
-    pass
+    test2()
