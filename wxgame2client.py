@@ -1251,10 +1251,13 @@ class wxGameContentsControl(wx.Control, FPSlogic):
         with open('state.pklz', 'rb') as f:
             recvdata = f.read()
         # loadlist = pickle.loads(zlib.decompress(recvdata) )
-        loadlist = pickle.loads(recvdata)
+        try:
+            loadlist = pickle.loads(recvdata)
         # pprint.pprint(loadlist)
-        self.applyState(loadlist)
-        return loadlist
+            self.applyState(loadlist)
+            return loadlist
+        except:
+            return
 
 
 class ShootingGameControl(wxGameContentsControl):

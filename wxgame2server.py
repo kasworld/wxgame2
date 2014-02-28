@@ -461,16 +461,21 @@ class SpriteLogic(SpriteObj):
     # return pprint.pformat([self.objtype, self.pos, self.movevector,
     # self.movefnargs])
 
-    def checkCollisionAppend(self, target, rtnobjs, rule):
+    def checkCollisionAppend(self, target, rtnobjs):
         """
         두 object간에 collision(interaction) 하고
-        objtype이 rule type에 속하면
+        objtype이 collisionTarget에 속하면
         rtnobjs에 append 한다.
         """
         if self.isCollision(target):
-            if target.objtype in rule[self.objtype]:
+            # if target.objtype in rule[self.objtype]:
+            #     rtnobjs.setdefault(self, set()).add(target)
+            if target.objtype in self.collisionTarget:
                 rtnobjs.setdefault(self, set()).add(target)
-            if self.objtype in rule[target.objtype]:
+
+            # if self.objtype in rule[target.objtype]:
+            #     rtnobjs.setdefault(target, set()).add(self)
+            if self.objtype in target.collisionTarget:
                 rtnobjs.setdefault(target, set()).add(self)
 
 
@@ -481,6 +486,9 @@ SpriteObj.typeDefaultDict = {
         'movelimit': 0.4,
         'collisionCricle': 0.004,
         'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
+        'movefnargs': {"accelvector": Vector2(0, 0)},
+        'movefn': SpriteLogic.Move_Vector,
+        'wallactionfn': SpriteLogic.WallAction_Remove,
     },
     "superbullet": {
         "objtype": 'superbullet',
@@ -488,6 +496,9 @@ SpriteObj.typeDefaultDict = {
         'movelimit': 0.6,
         'collisionCricle': 0.032,
         'collisionTarget': ['supershield', 'superbullet', 'hommingbullet'],
+        'movefnargs': {"accelvector": Vector2(0, 0)},
+        'movefn': SpriteLogic.Move_Vector,
+        'wallactionfn': SpriteLogic.WallAction_Remove,
     },
     "hommingbullet": {
         "objtype": 'hommingbullet',
@@ -495,6 +506,8 @@ SpriteObj.typeDefaultDict = {
         'movelimit': 0.3,
         'collisionCricle': 0.016,
         'collisionTarget': ['supershield', 'superbullet', 'hommingbullet'],
+        'movefn': SpriteLogic.Move_FollowTarget,
+        'wallactionfn': SpriteLogic.WallAction_None,
     },
     "bullet": {
         "objtype": 'bullet',
@@ -502,6 +515,9 @@ SpriteObj.typeDefaultDict = {
         'movelimit': 0.5,
         'collisionCricle': 0.008,
         'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
+        'movefnargs': {"accelvector": Vector2(0, 0)},
+        'movefn': SpriteLogic.Move_Vector,
+        'wallactionfn': SpriteLogic.WallAction_Remove,
     },
     "bounceball": {
         "objtype": 'bounceball',
@@ -539,17 +555,18 @@ SpriteObj.typeDefaultDict = {
         'secToLifeEnd': 10.0,
         'collisionCricle': 0.011,
         'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-        'bounceDamping': 1.0,
-        "movefnargs": {
-            "anglespeed": 0.05,
-            'movefn': SpriteLogic.Move_SyncTarget,
-        },
+        'animationfps': 30,
+        'movefn': SpriteLogic.Move_SyncTarget,
+        'wallactionfn': SpriteLogic.WallAction_None,
     },
     "effect": {
         "objtype": 'effect',
         'secToLifeEnd': 1.0,
         'collisionCricle': 0,
         'collisionTarget': [],
+        'movefn': SpriteLogic.Move_Vector,
+        'wallactionfn': SpriteLogic.WallAction_Remove,
+        'movefnargs': {"accelvector": Vector2(0, 0)},
     },
     "background": {
         "objtype": 'background',
@@ -708,128 +725,73 @@ class GameObjectGroup(list):
         return bucketlist
 
     # 이후는 SpriteLogic를 편하게 생성하기위한 factory functions
-    def AddCircularBullet2(self, centerpos, thistick=None):
-        if not thistick:
-            thistick = getFrameTime()
+    def AddCircularBullet2(self, centerpos):
         for a in range(0, 360, 5):
             o = SpriteLogic(dict(
-                secToLifeEnd=10.0,
-                createdTime=thistick,
-                collisionCricle=0.004,
                 pos=centerpos + Vector2.rect(0.03, math.radians(a)),
                 movevector=Vector2.rect(1, math.radians(a)),
-                movefnargs={"accelvector": Vector2(0, 0)},
-                movefn=SpriteLogic.Move_Vector,
-                wallactionfn=SpriteLogic.WallAction_Remove,
                 objtype="circularbullet",
                 group=self,
             ))
             self.append(o)
         return self
 
-    def AddTargetFiredBullet(self, startpos, tagetpos, thistick=None):
-        if not thistick:
-            thistick = getFrameTime()
+    def AddTargetFiredBullet(self, startpos, tagetpos):
         o = SpriteLogic(dict(
-            secToLifeEnd=10.0,
-            createdTime=thistick,
-            collisionCricle=0.008,
             pos=startpos,
             movevector=Vector2.rect(1, (tagetpos - startpos).phase()),
-            movefnargs={"accelvector": Vector2(0, 0)},
-            movefn=SpriteLogic.Move_Vector,
-            wallactionfn=SpriteLogic.WallAction_Remove,
             objtype="bullet",
             group=self,
         ))
         self.append(o)
         return self
 
-    def AddHommingBullet(self, startpos, target, thistick=None, expireFn=None):
-        if not thistick:
-            thistick = getFrameTime()
+    def AddHommingBullet(self, startpos, target, expireFn=None):
         o = SpriteLogic(dict(
-            secToLifeEnd=10.0,
             expireFn=expireFn,
-            createdTime=thistick,
-            collisionCricle=0.016,
             pos=startpos,
             movevector=Vector2.rect(1, Vector2.phase(target.pos - startpos)),
-            movefnargs={"accelvector": Vector2(
-                0.5, 0.5), "targetobj": target},
-            movefn=SpriteLogic.Move_FollowTarget,
-            bounceDamping=.7,
-            wallactionfn=SpriteLogic.WallAction_None,
+            movefnargs={
+                "accelvector": Vector2(0.5, 0.5),
+                "targetobj": target
+            },
             objtype="hommingbullet",
             group=self,
         ))
         self.append(o)
         return self
 
-    def AddTargetSuperBullet(self, startpos, tagetpos, thistick=None):
-        if not thistick:
-            thistick = getFrameTime()
+    def AddTargetSuperBullet(self, startpos, tagetpos):
         o = SpriteLogic(dict(
-            secToLifeEnd=10.0,
-            createdTime=thistick,
-            collisionCricle=0.032,
             pos=startpos,
             movevector=Vector2.rect(1, Vector2.phase(tagetpos - startpos)),
-            movefnargs={"accelvector": Vector2(0, 0)},
-            movefn=SpriteLogic.Move_Vector,
-            wallactionfn=SpriteLogic.WallAction_Remove,
             objtype="superbullet",
             group=self,
         ))
         self.append(o)
         return self
 
-    def AddSuperShield(self,
-                       animationfps=30,
-                       diffvector=Vector2(0.1, 0.1),
-                       target=None,
-                       anglespeed=0.05,
-                       thistick=None,
-                       expireFn=None
-                       ):
-        if not thistick:
-            thistick = getFrameTime()
+    def AddSuperShield(self, target, expireFn):
         o = SpriteLogic(dict(
-            secToLifeEnd=10.0,
             expireFn=expireFn,
-            createdTime=thistick,
-            collisionCricle=0.011,
             pos=target.pos,
-            movefnargs={"targetobj": target, "diffvector":
-                        diffvector, "anglespeed": anglespeed},
-            movefn=SpriteLogic.Move_SyncTarget,
-            bounceDamping=.7,
-            wallactionfn=SpriteLogic.WallAction_None,
+            movefnargs={
+                "targetobj": target,
+                "diffvector": Vector2(0.06, 0).addAngle(random2pi()),
+                "anglespeed": random2pi()
+            },
             objtype="supershield",
             group=self,
         ))
         self.append(o)
         return self
 
-    def AddExplosionEffect(self,
-                           pos,  dur=0.25,
-                           movevector=Vector2(0, 0),
-                           movefnargs={"accelvector": Vector2(0, 0)},
-                           afterremovefn=None, afterremovefnarg=(),
-                           thistick = None
-                           ):
-        if not thistick:
-            thistick = getFrameTime()
+    def AddExplosionEffect(self, pos,  dur, movevector, afterremovefn, afterremovefnarg):
         self.append(
             SpriteLogic(dict(
                 pos=pos,
                 secToLifeEnd=dur,
-                createdTime=thistick,
-                collisionCricle=0.03,
-                movefn=SpriteLogic.Move_Vector,
                 movevector=movevector,
-                movefnargs=movefnargs,
-                wallactionfn=SpriteLogic.WallAction_Remove,
                 afterremovefn=afterremovefn,
                 afterremovefnarg=afterremovefnarg,
                 objtype="effect",
@@ -843,12 +805,9 @@ class GameObjectGroup(list):
             src.pos,
             .25,
             movevector=src.movevector / 4,
-            movefnargs={"accelvector": Vector2(0, 0)}
+            afterremovefn=None,
+            afterremovefnarg=()
         )
-
-    """
-    주 오브젝트와 그에 종속되는 shield, bullet 들
-    """
 
     def addBallExplosionEffect(self, effectObjs, g1, b):
         # pprint.pprint(("addBallExplosionEffect", self, g1))
@@ -856,7 +815,6 @@ class GameObjectGroup(list):
             b.pos,
             0.5,
             movevector=b.movevector / 4,
-            movefnargs={"accelvector": Vector2(0, 0)},
             afterremovefn=self.addSpawnEffect,
             afterremovefnarg=(effectObjs, g1),
         )
@@ -868,7 +826,6 @@ class GameObjectGroup(list):
             newpos,
             .5,
             movevector=Vector2(0, 0),
-            movefnargs={"accelvector": Vector2(0, 0)},
             afterremovefn=g1.addMember,
             afterremovefnarg=(newpos,)
         )
@@ -917,8 +874,7 @@ class GameObjectGroup(list):
                             print "Error %s %s %s" % (act, src, actargs)
                     elif act == "bullet":
                         if actargs:
-                            self.AddTargetFiredBullet(
-                                src.pos, actargs, None)
+                            self.AddTargetFiredBullet(src.pos, actargs)
                         else:
                             print "Error %s %s %s" % (act, src, actargs)
                     elif act == "accel":
@@ -1279,17 +1235,6 @@ class ShootingGameControl(FPSlogic):
 
     def makeCollisionDict(self):
         # 현재 위치를 기준으로 collision / interaction 검사하고
-        rule = {
-            'bounceball': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-            'shield': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-            'supershield': ['supershield', 'superbullet', 'hommingbullet'],
-            'bullet': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-            'circularbullet': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-            'superbullet': ['supershield', 'superbullet', 'hommingbullet'],
-            'hommingbullet': ['supershield', 'superbullet', 'hommingbullet'],
-            'effect': [],
-            None: [],
-        }
         # get all collision list { src: [ t1, t1.. ], .. }
         buckets = []
         for aa in self.dispgroup['objplayers']:
@@ -1311,7 +1256,7 @@ class ShootingGameControl(FPSlogic):
                 cmpsum += len(b1[i]) * len(b2[i])
                 for o1 in b1[i]:
                     for o2 in b2[i]:
-                        o1.checkCollisionAppend(o2, resultdict, rule)
+                        o1.checkCollisionAppend(o2, resultdict)
         return resultdict, cmpsum
 
     def doScoreSimple(self, resultdict):
@@ -1405,10 +1350,7 @@ class ShootingGameControl(FPSlogic):
                                 target.group.statistic[
                                     'act']['supershield'] += 1
                                 target.group.AddSuperShield(
-                                    diffvector=Vector2(
-                                        0.06, 0).addAngle(random2pi()),
                                     target=target.group[0],
-                                    anglespeed=random2pi(),
                                     expireFn=self.dispgroup[
                                         'effectObjs'].addSpriteExplosionEffect
                                 )
@@ -1459,9 +1401,14 @@ class ShootingGameControl(FPSlogic):
             savelist.append(cog)
             for o in og:
                 cog['objs'].append((o.ID, o.objtype, o.pos, o.movevector))
-        # tosenddata = zlib.compress(pickle.dumps(savelist,
-        # pickle.HIGHEST_PROTOCOL))
         return savelist
+
+    def saveState(self):
+        savelist = self.makeState()
+        tosenddata = pickle.dumps(savelist, pickle.HIGHEST_PROTOCOL)
+        with open('state.pklz', 'wb') as f:
+            f.write(tosenddata)
+        return len(tosenddata)
 
     def doFPSlogic(self, frameinfo):
         self.thistick = getFrameTime()
@@ -1493,9 +1440,7 @@ class ShootingGameControl(FPSlogic):
         self.dispgroup['effectObjs'].AutoMoveByTime(
             self.thistick).RemoveDisabled()
 
-        senddata = self.makeState()
-        sendpickle = zlib.compress(pickle.dumps(senddata))
-        self.statPacketL.update(len(sendpickle))
+        self.statPacketL.update(self.saveState())
 
         # 화면에 표시
         if ischanagestatistic:
@@ -1512,7 +1457,7 @@ class ShootingGameControl(FPSlogic):
 
 def doGame():
     game = ShootingGameControl()
-    #pprint.pprint(game)
+    # pprint.pprint(game)
     # pprint.pprint(game.makeTeam())
     while True:
         game.FPSTimer()
