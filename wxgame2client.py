@@ -262,6 +262,16 @@ class GameObjectDisplayGroup(GameObjectGroup):
             "spawn.png", 1, 6, reverse=True)
         self.resoueceReady = True
 
+        self.rcsdict = {
+            'bounceball': self.balldcs[0],
+            'bullet': self.bulletdcs,
+            'hommingbullet': self.ringmemorydcs,
+            'superbullet': self.superbulletdcs,
+            'circularbullet': self.curcularmemorydc,
+            'shield': self.curcularmemorydc,
+            'supershield': self.earthmemorydcs,
+        }
+
     def __init__(self, *args, **kwds):
         self.resoueceReady = False
         GameObjectGroup.__init__(self, *args, **kwds)
@@ -315,144 +325,6 @@ class GameObjectDisplayGroup(GameObjectGroup):
         self.append(o)
         return self
 
-    def AddCircularBullet2(self, centerpos, memorydcs):
-        for a in range(0, 360, 5):
-            o = ShootingGameObject(dict(
-                pos=centerpos + Vector2.rect(0.03, math.radians(a)),
-                movevector=Vector2.rect(1, math.radians(a)),
-                objtype="circularbullet",
-                group=self,
-
-                shapefn=ShootingGameObject.ShapeChange_None,
-                shapefnargs={
-                    'memorydcs': memorydcs,
-                    'startimagenumber': a % len(memorydcs)
-                },
-            ))
-            self.append(o)
-        return self
-
-    def AddTargetFiredBullet(self, startpos, tagetpos, memorydcs):
-        o = ShootingGameObject(dict(
-            pos=startpos,
-            movevector=Vector2.rect(1, (tagetpos - startpos).phase()),
-            objtype="bullet",
-            group=self,
-            shapefn=ShootingGameObject.ShapeChange_None,
-            shapefnargs={
-                'memorydcs': memorydcs,
-            },
-        ))
-        self.append(o)
-        return self
-
-    def AddHommingBullet(self, startpos, target, memorydcs, expireFn=None):
-        o = ShootingGameObject(dict(
-            expireFn=expireFn,
-            pos=startpos,
-            movevector=Vector2.rect(1, Vector2.phase(target.pos - startpos)),
-            movefnargs={
-                "targetobj": target
-            },
-            objtype="hommingbullet",
-            group=self,
-
-            shapefn=ShootingGameObject.ShapeChange_None,
-            shapefnargs={
-                'memorydcs': memorydcs,
-            },
-        ))
-        self.append(o)
-        return self
-
-    def AddTargetSuperBullet(self, startpos, tagetpos, memorydcs):
-        o = ShootingGameObject(dict(
-            pos=startpos,
-            movevector=Vector2.rect(1, Vector2.phase(tagetpos - startpos)),
-            objtype="superbullet",
-            group=self,
-
-            shapefn=ShootingGameObject.ShapeChange_None,
-            shapefnargs={
-                'memorydcs': memorydcs,
-            },
-        ))
-        self.append(o)
-        return self
-
-    def AddSuperShield(self, memorydcs, target, expireFn):
-        o = SpriteLogic(dict(
-            expireFn=expireFn,
-            pos=target.pos,
-            movefnargs={
-                "targetobj": target,
-                "diffvector": Vector2(0.06, 0).addAngle(random2pi()),
-                "anglespeed": random2pi()
-            },
-            objtype="supershield",
-            group=self,
-
-            shapefn=ShootingGameObject.ShapeChange_None,
-            shapefnargs={
-                'memorydcs': memorydcs,
-            },
-        ))
-        self.append(o)
-        return self
-
-    def AddExplosionEffect(self, pos, memorydcs, dur, movevector, afterremovefn, afterremovefnarg):
-        fps = len(memorydcs) / dur
-        self.append(
-            ShootingGameObject(dict(
-                pos=pos,
-                secToLifeEnd=dur,
-                movevector=movevector,
-                afterremovefn=afterremovefn,
-                afterremovefnarg=afterremovefnarg,
-                objtype="effect",
-                group=self,
-
-                shapefn=ShootingGameObject.ShapeChange_None,
-                shapefnargs={
-                    'memorydcs': memorydcs,
-                    'animationfps': fps,
-                },
-            ))
-        )
-        return self
-
-    def addSpriteExplosionEffect(self, src):
-        self.AddExplosionEffect(
-            src.pos,
-            src.group.effectmemorydcs,
-            .25,
-            movevector=src.movevector / 4,
-            movefnargs={"accelvector": Vector2(0, 0)}
-        )
-
-    def addBallExplosionEffect(self, effectObjs, g1, b):
-        # pprint.pprint(("addBallExplosionEffect", self, g1))
-        self.AddExplosionEffect(
-            b.pos,
-            g1.ballbombmemorydcs[1:],
-            0.5,
-            movevector=b.movevector / 4,
-            afterremovefn=self.addSpawnEffect,
-            afterremovefnarg=(effectObjs, g1),
-        )
-
-    def addSpawnEffect(self, effectObjs, g1):
-        # pprint.pprint(("addSpawnEffect", self, g1))
-        newpos = Vector2(random.random(), random.random())
-        self.AddExplosionEffect(
-            newpos,
-            g1.ballspawnmemorydcs,
-            .5,
-            movevector=Vector2(0, 0),
-            afterremovefn=g1.addMember,
-            afterremovefnarg=(newpos,)
-        )
-
     def DrawToWxDC(self, pdc):
         clientsize = pdc.GetSize()
         sizehint = min(clientsize.x, clientsize.y)
@@ -460,17 +332,6 @@ class GameObjectDisplayGroup(GameObjectGroup):
             a.DrawToWxDC(pdc, clientsize, sizehint)
         return self
 
-    # 실제 각 AI 별로 다르게 만들어야 하는 함수
-    def SelectAction(self, aimingtargetlist, src):
-        """
-        returns
-        [ (action, acttionargs), ... ]
-        """
-        return [
-            #("accel",Vector2.rect(random.random()/14.0,random2pi())),
-            #("superbullet",Vector2(.5,.5)),
-            #("bullet",Vector2(.5,.5)),
-        ]
 
 
 # 주 canvas class 들 wxPython전용.
@@ -528,22 +389,20 @@ class ShootingGameControl(wx.Control, FPSlogic):
     def applyState(self, loadlist):
         self.dispgroup['objplayers'] = []
         for og in loadlist:
-            if len(og['objs']) < 1:
-                continue
-            ol = og['objs'][0]
-
-            # print ol
-            gog = GameObjectDisplayGroup()
-            gog.AddBouncBall(
-                objtype='bounceball',
-                pos=ol[2],
-                movevector=ol[3],
-                group=self,
-                shapefn=ShootingGameObject.ShapeChange_None,
-                shapefnargs={
-                    'memorydcs': random.choice(gog.balldcs)
-                },
-            )
+            gog = GameObjectDisplayGroup(resource=og['resource'])
+            for objid, objtype, objpos, objmovevector in og['objs']:
+                if objtype in gog.rcsdict:
+                    o = ShootingGameObject(dict(
+                        objtype=objtype,
+                        pos=objpos,
+                        movevector=objmovevector,
+                        group=gog,
+                        shapefn=ShootingGameObject.ShapeChange_None,
+                        shapefnargs={
+                            'memorydcs': gog.rcsdict[objtype]
+                        },
+                    ))
+                    gog.append(o)
             self.dispgroup['objplayers'].append(gog)
 
     def loadState(self):
@@ -563,8 +422,8 @@ class ShootingGameControl(wx.Control, FPSlogic):
 
         self.thistick = getFrameTime()
 
-        for o in self.dispgroup['objplayers']:
-            o.AutoMoveByTime(self.thistick)
+        # for o in self.dispgroup['objplayers']:
+        #     o.AutoMoveByTime(self.thistick)
 
         self.dispgroup['effectObjs'].AutoMoveByTime(
             self.thistick).RemoveDisabled()

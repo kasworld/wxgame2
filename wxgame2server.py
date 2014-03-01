@@ -162,10 +162,9 @@ class SpriteObj(FastStorage):
     def loadArgs(self, params):
         for k, v in params.iteritems():
             if k in ['movefnargs', 'shapefnargs']:
-                # self[k].update(v)
-                self.setdefault(k, {}).update(v)
+                self.setdefault(k, {}).update(v.copy())
             elif k in ['autoMoveFns']:
-                self[k] = v
+                self[k] = v.copy()
             else:
                 self[k] = v
 
@@ -1317,13 +1316,10 @@ class ShootingGameControl(FPSlogic):
         """
         savelist = []
         for og in self.dispgroup['objplayers']:
-            teamname = None
-            if hasattr(og, 'teamname'):
-                teamname = og.teamname
             cog = {
                 'id': og.ID,
-                'teamname': teamname,
-                'class': og.__class__.__name__,
+                'teamname': og.teamname,
+                'resource': og.resource,
                 'objs': []
             }
             savelist.append(cog)
