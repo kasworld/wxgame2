@@ -51,6 +51,41 @@ def getHMSAngle(mst, hands):
         return None
 
 
+class FastStorage(dict):
+
+    """from gluon storage.py """
+
+    def __init__(self, *args, **kwargs):
+        dict.__init__(self, *args, **kwargs)
+        self.__dict__ = self
+
+    def __getattr__(self, key):
+        return getattr(self, key) if key in self else None
+
+    def __getitem__(self, key):
+        return dict.get(self, key, None)
+
+    def copy(self):
+        self.__dict__ = {}
+        s = FastStorage(self)
+        self.__dict__ = self
+        return s
+
+    def __repr__(self):
+        return '<Storage %s>' % dict.__repr__(self)
+
+    def __getstate__(self):
+        return dict(self)
+
+    def __setstate__(self, sdict):
+        dict.__init__(self, sdict)
+        self.__dict__ = self
+
+    def update(self, *args, **kwargs):
+        dict.__init__(self, *args, **kwargs)
+        self.__dict__ = self
+
+
 class Statistics(object):
 
     def __init__(self):

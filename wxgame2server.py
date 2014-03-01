@@ -33,55 +33,11 @@ except:
 
 from euclid import Vector2
 
-getSerial = itertools.count().next
-
-
-def random2pi(m=2):
-    return math.pi * m * (random.random() - 0.5)
+from wxgamelib import getSerial, random2pi, Statistics, FastStorage
 
 
 def getFrameTime():
     return time.time()
-
-
-class Statistics(object):
-
-    def __init__(self):
-        self.datadict = {
-            'min': None,
-            'max': None,
-            'avg': None,
-            'sum': 0,
-            'last': None,
-            'count': 0,
-        }
-        self.formatstr = '%(last)s(%(min)s~%(max)s), %(avg)s=%(sum)s/%(count)d'
-
-    def update(self, data):
-        data = float(data)
-        self.datadict['count'] += 1
-        self.datadict['sum'] += data
-
-        if self.datadict['last'] is not None:
-            self.datadict['min'] = min(self.datadict['min'], data)
-            self.datadict['max'] = max(self.datadict['max'], data)
-            self.datadict['avg'] = self.datadict[
-                'sum'] / self.datadict['count']
-        else:
-            self.datadict['min'] = data
-            self.datadict['max'] = data
-            self.datadict['avg'] = data
-            self.formatstr = '%(last).2f(%(min).2f~%(max).2f), %(avg).2f=%(sum).2f/%(count)d'
-
-        self.datadict['last'] = data
-
-        return self
-
-    def getStat(self):
-        return self.datadict
-
-    def __str__(self):
-        return self.formatstr % self.datadict
 
 
 class FPSlogic(object):
@@ -156,41 +112,6 @@ class FPSlogic(object):
         pass
 
 
-class FastStorage(dict):
-
-    """from gluon storage.py """
-
-    def __init__(self, *args, **kwargs):
-        dict.__init__(self, *args, **kwargs)
-        self.__dict__ = self
-
-    def __getattr__(self, key):
-        return getattr(self, key) if key in self else None
-
-    def __getitem__(self, key):
-        return dict.get(self, key, None)
-
-    def copy(self):
-        self.__dict__ = {}
-        s = FastStorage(self)
-        self.__dict__ = self
-        return s
-
-    def __repr__(self):
-        return '<Storage %s>' % dict.__repr__(self)
-
-    def __getstate__(self):
-        return dict(self)
-
-    def __setstate__(self, sdict):
-        dict.__init__(self, sdict)
-        self.__dict__ = self
-
-    def update(self, *args, **kwargs):
-        dict.__init__(self, *args, **kwargs)
-        self.__dict__ = self
-
-
 class SpriteObj(FastStorage):
     validFields = {
         'ID': 0,
@@ -240,8 +161,9 @@ class SpriteObj(FastStorage):
 
     def loadArgs(self, params):
         for k, v in params.iteritems():
-            if k in ['movefnargs']:
-                self[k].update(v)
+            if k in ['movefnargs', 'shapefnargs']:
+                # self[k].update(v)
+                self.setdefault(k, {}).update(v)
             elif k in ['autoMoveFns']:
                 self[k] = v
             else:
@@ -507,6 +429,7 @@ SpriteObj.typeDefaultDict = {
         'collisionCricle': 0.016,
         'collisionTarget': ['supershield', 'superbullet', 'hommingbullet'],
         'movefn': SpriteLogic.Move_FollowTarget,
+        'movefnargs': {"accelvector": Vector2(0.0, 0.0)},
         'wallactionfn': SpriteLogic.WallAction_None,
     },
     "bullet": {
@@ -527,13 +450,13 @@ SpriteObj.typeDefaultDict = {
         'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
         'bounceDamping': 1.0,
         "level": 1,
-        'animationfps': 30,
         'pos': Vector2(0.5, 0.5),
         'movevector': Vector2(0, 0),
         'movefn': SpriteLogic.Move_Vector,
         'wallactionfn': SpriteLogic.WallAction_Bounce,
         'movefnargs': {"accelvector": Vector2(0, 0)},
         'fireTimeDict': {},
+        'shapefnargs': {'animationfps': 30},
     },
     "shield": {
         "objtype": 'shield',
@@ -543,21 +466,19 @@ SpriteObj.typeDefaultDict = {
         'bounceDamping': .7,
         "movefnargs": {
             "anglespeed": 0.05,
-
         },
-        'animationfps': 30,
         'movefn': SpriteLogic.Move_SyncTarget,
         'wallactionfn': SpriteLogic.WallAction_None,
-
+        'shapefnargs': {'animationfps': 30},
     },
     "supershield": {
         "objtype": 'supershield',
         'secToLifeEnd': 10.0,
         'collisionCricle': 0.011,
         'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-        'animationfps': 30,
         'movefn': SpriteLogic.Move_SyncTarget,
         'wallactionfn': SpriteLogic.WallAction_None,
+        'shapefnargs': {'animationfps': 30},
     },
     "effect": {
         "objtype": 'effect',
@@ -570,10 +491,15 @@ SpriteObj.typeDefaultDict = {
     },
     "background": {
         "objtype": 'background',
-        "movelimit": 0.1,
+        'pos': Vector2(500, 500),
         'secToLifeEnd': -1.0,
         'collisionCricle': 0,
         'collisionTarget': [],
+        'movelimit': 100,
+        'movefnargs': {"accelvector": Vector2(1, 0)},
+        'wallactionfn': SpriteLogic.WallAction_None,
+        'movefn': SpriteLogic.Move_Vector,
+        'shapefnargs': {'animationfps': 0},
     },
 }
 
@@ -642,6 +568,7 @@ class GameObjectGroup(list):
             "maxlevelup": 0,
         }
 
+    def makeMember(self):
         while len(self) < self.membercount or self[self.membercount - 1].objtype != "bounceball":
             self.addMember(Vector2(random.random(), random.random()))
 
@@ -664,6 +591,12 @@ class GameObjectGroup(list):
                 )
         return target
 
+    # 이후는 SpriteLogic를 편하게 생성하기위한 factory functions
+    def AddBouncBall(self, **kwargs):
+        o = SpriteLogic(kwargs)
+        self.insert(0, o)
+        return o
+
     def AddShield(self, target, diffvector, anglespeed):
         o = SpriteLogic(dict(
             pos=target.pos,
@@ -677,54 +610,6 @@ class GameObjectGroup(list):
         self.append(o)
         return self
 
-    def AddBouncBall(self, **kwargs):
-        o = SpriteLogic(kwargs)
-        self.insert(0, o)
-        return o
-
-    def AutoMoveByTime(self, thistick):
-        for a in self:
-            a.AutoMoveByTime(thistick)
-        return self
-
-    def RemoveDisabled(self):
-        rmlist = []
-        for a in self:
-            if not a.enabled:
-                rmlist.append(a)
-        for a in rmlist:
-            self.remove(a)
-        for a in rmlist:
-            if a.afterremovefn:
-                a.afterremovefn(*a.afterremovefnarg)
-        return self
-
-    def makeCollisionBucket(self, objtypes, xunit=0.05, yunit=0.05):
-        """
-        return { (x,y): [], ... }
-        """
-        def getBucketPos(o):
-            assert xunit > o.collisionCricle, yunit > o.collisionCricle
-            return set((
-                (int((o.pos.x + o.collisionCricle) / xunit), int(
-                    (o.pos.y + o.collisionCricle) / yunit)),
-                (int((o.pos.x - o.collisionCricle) / xunit), int(
-                    (o.pos.y + o.collisionCricle) / yunit)),
-                (int((o.pos.x + o.collisionCricle) / xunit), int(
-                    (o.pos.y - o.collisionCricle) / yunit)),
-                (int((o.pos.x - o.collisionCricle) / xunit), int(
-                    (o.pos.y - o.collisionCricle) / yunit))
-            ))
-        bucketlist = {}
-        for o in self:
-            if o.objtype not in objtypes:
-                continue
-            buk = getBucketPos(o)
-            for b in buk:
-                bucketlist.setdefault(b, []).append(o)
-        return bucketlist
-
-    # 이후는 SpriteLogic를 편하게 생성하기위한 factory functions
     def AddCircularBullet2(self, centerpos):
         for a in range(0, 360, 5):
             o = SpriteLogic(dict(
@@ -786,7 +671,7 @@ class GameObjectGroup(list):
         self.append(o)
         return self
 
-    def AddExplosionEffect(self, pos,  dur, movevector, afterremovefn, afterremovefnarg):
+    def AddExplosionEffect(self, pos, dur, movevector, afterremovefn, afterremovefnarg):
         self.append(
             SpriteLogic(dict(
                 pos=pos,
@@ -829,6 +714,48 @@ class GameObjectGroup(list):
             afterremovefn=g1.addMember,
             afterremovefnarg=(newpos,)
         )
+
+    def AutoMoveByTime(self, thistick):
+        for a in self:
+            a.AutoMoveByTime(thistick)
+        return self
+
+    def RemoveDisabled(self):
+        rmlist = []
+        for a in self:
+            if not a.enabled:
+                rmlist.append(a)
+        for a in rmlist:
+            self.remove(a)
+        for a in rmlist:
+            if a.afterremovefn:
+                a.afterremovefn(*a.afterremovefnarg)
+        return self
+
+    def makeCollisionBucket(self, objtypes, xunit=0.05, yunit=0.05):
+        """
+        return { (x,y): [], ... }
+        """
+        def getBucketPos(o):
+            assert xunit > o.collisionCricle, yunit > o.collisionCricle
+            return set((
+                (int((o.pos.x + o.collisionCricle) / xunit), int(
+                    (o.pos.y + o.collisionCricle) / yunit)),
+                (int((o.pos.x - o.collisionCricle) / xunit), int(
+                    (o.pos.y + o.collisionCricle) / yunit)),
+                (int((o.pos.x + o.collisionCricle) / xunit), int(
+                    (o.pos.y - o.collisionCricle) / yunit)),
+                (int((o.pos.x - o.collisionCricle) / xunit), int(
+                    (o.pos.y - o.collisionCricle) / yunit))
+            ))
+        bucketlist = {}
+        for o in self:
+            if o.objtype not in objtypes:
+                continue
+            buk = getBucketPos(o)
+            for b in buk:
+                bucketlist.setdefault(b, []).append(o)
+        return bucketlist
 
     # AI start funcion
     def FireAndAutoMoveByTime(self, aimingtargetlist, thisFPS=60, thistick=0):
@@ -1198,8 +1125,7 @@ class ShootingGameControl(FPSlogic):
             selpos = d.get('resource', -1)
             if selpos >= 0 and selpos < len(randteam):
                 sel = randteam[selpos]
-            teamobjs.append(
-                d["AIClass"](
+                o = d["AIClass"](
                     resource=sel["resource"],
                     teamcolor=sel["color"],
                     teamname=d["teamname"],
@@ -1207,15 +1133,17 @@ class ShootingGameControl(FPSlogic):
                     # enableshield = False,
                     # inoutrate = d / 100.0,
                     effectObjs=self.dispgroup['effectObjs'],
-                ))
+                )
+                o.makeMember()
+            teamobjs.append(o)
         return teamobjs
 
     def __init__(self, *args, **kwds):
         def setAttr(name, defaultvalue):
             self.__dict__[name] = kwds.pop(name, defaultvalue)
             return self.__dict__[name]
-
         self.FPSTimerInit(70)
+
         self.dispgroup = {}
         self.dispgroup['backgroup'] = GameObjectGroup()
         self.dispgroup['effectObjs'] = GameObjectGroup()
@@ -1452,31 +1380,11 @@ class ShootingGameControl(FPSlogic):
 
         return ''
 
-# object class data
-
 
 def doGame():
     game = ShootingGameControl()
-    # pprint.pprint(game)
-    # pprint.pprint(game.makeTeam())
     while True:
         game.FPSTimer()
-
-
-def test():
-    a = SpriteLogic({'objtype': 'bounceball'})
-    print a
-    b = SpriteLogic({'objtype': 'bounceball'})
-    print b
-    c = SpriteLogic({'objtype': 'bounceball'})
-    print c
-
-    print a
-
-
-def test2():
-    a = GameObjectGroup()
-    print a
 
 if __name__ == "__main__":
     doGame()
