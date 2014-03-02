@@ -177,20 +177,6 @@ class ShootingGameObject(SpriteLogic):
         self.registerAutoMoveFn(self.shapefn, [])
         self.registerAutoMoveFn(ShootingGameObject.changeImage, [])
 
-    def ShapeChange_Shrink(self, args):
-        self.collisionCricle = self.baseCollisionCricle * \
-            (1 - self.getLifeRate(self.thistick))
-
-    def ShapeChange_Grow(self, args):
-        self.collisionCricle = self.baseCollisionCricle * \
-            self.getLifeRate(self.thistick)
-
-    def ShapeChange_Glitter(self, args):
-        self.collisionCricle = self.baseCollisionCricle * (
-            math.sin(self.thistick - self.createdTime + self.shapefnargs[
-                     'radiusSpeed']) + 1
-        )
-
     def ShapeChange_None(self, args):
         pass
 
@@ -231,10 +217,6 @@ class ShootingGameObject(SpriteLogic):
 
 class GameObjectDisplayGroup(GameObjectGroup):
 
-    def setAttrs(self, defaultdict, kwds):
-        for k, v in defaultdict.iteritems():
-            setattr(self, k, kwds.pop(k, v))
-
     def loadResource(self):
         if self.resoueceReady is True:
             return
@@ -270,6 +252,7 @@ class GameObjectDisplayGroup(GameObjectGroup):
             'circularbullet': self.curcularmemorydc,
             'shield': self.curcularmemorydc,
             'supershield': self.earthmemorydcs,
+            'effect': self.ballbombmemorydcs,
         }
 
     def __init__(self, *args, **kwds):
@@ -277,61 +260,12 @@ class GameObjectDisplayGroup(GameObjectGroup):
         GameObjectGroup.__init__(self, *args, **kwds)
         self.loadResource()
 
-    def makeMember(self):
-        self.loadResource()
-        GameObjectGroup.makeMember(self)
-
-    def addMember(self, newpos):
-        target = self.AddBouncBall(
-            objtype='bounceball',
-            pos=newpos,
-            group=self,
-            shapefn=ShootingGameObject.ShapeChange_None,
-            shapefnargs={
-                'memorydcs': random.choice(self.balldcs)
-            },
-        )
-        # target.level = 1
-        target.fireTimeDict = {}
-        if self.enableshield:
-            for i, a in enumerate(range(0, 360, 30)):
-                self.AddShield(
-                    memorydcs=self.curcularmemorydc,
-                    diffvector=Vector2(0.03, 0).addAngle(
-                        2 * math.pi * a / 360.0),
-                    target=target,
-                    anglespeed=math.pi if i % 2 == 0 else -math.pi)
-        return target
-
-    def AddBouncBall(self, **kwargs):
-        o = ShootingGameObject(kwargs)
-        self.insert(0, o)
-        return o
-
-    def AddShield(self, memorydcs, target, diffvector, anglespeed):
-        o = SpriteLogic(dict(
-            pos=target.pos,
-            movefnargs={
-                "targetobj": target,
-                "anglespeed": anglespeed
-            },
-            shapefn=ShootingGameObject.ShapeChange_None,
-            shapefnargs={
-                'memorydcs': memorydcs,
-            },
-            objtype="shield",
-            group=self,
-        ))
-        self.append(o)
-        return self
-
     def DrawToWxDC(self, pdc):
         clientsize = pdc.GetSize()
         sizehint = min(clientsize.x, clientsize.y)
         for a in self:
             a.DrawToWxDC(pdc, clientsize, sizehint)
         return self
-
 
 
 # 주 canvas class 들 wxPython전용.

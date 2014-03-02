@@ -33,83 +33,11 @@ except:
 
 from euclid import Vector2
 
-from wxgamelib import getSerial, random2pi, Statistics, FastStorage
+from wxgamelib import getSerial, random2pi, Statistics, FastStorage, FPSlogicBase
 
 
 def getFrameTime():
     return time.time()
-
-
-class FPSlogic(object):
-
-    def FPSTimerInit(self, maxFPS=70):
-        self.maxFPS = maxFPS
-        self.repeatingcalldict = {}
-        self.pause = False
-        self.statFPS = Statistics()
-        #self.timer.Start(1000 / self.maxFPS, oneShot=True)
-        self.frames = [time.time()]
-        self.first = True
-
-    def registerRepeatFn(self, fn, dursec):
-        """
-            function signature
-            def repeatFn(self,repeatinfo):
-            repeatinfo is {
-            "dursec" : dursec ,
-            "oldtime" : time.time() ,
-            "starttime" : time.time(),
-            "repeatcount":0 }
-        """
-        self.repeatingcalldict[fn] = {
-            "dursec": dursec,
-            "oldtime": time.time(),
-            "starttime": time.time(),
-            "repeatcount": 0}
-        return self
-
-    def unRegisterRepeatFn(self, fn):
-        return self.repeatingcalldict.pop(fn, [])
-
-    def FPSTimer(self):
-        thistime = time.time()
-        self.frames.append(thistime)
-        difftime = self.frames[-1] - self.frames[-2]
-
-        while(self.frames[-1] - self.frames[0] > 1):
-            del self.frames[0]
-
-        if len(self.frames) > 1:
-            fps = len(self.frames) / (self.frames[-1] - self.frames[0])
-        else:
-            fps = 0
-        if self.first:
-            self.first = False
-        else:
-            self.statFPS.update(fps)
-
-        frameinfo = {
-            "ThisFPS": 1 / difftime,
-            "sec": difftime,
-            "FPS": fps,
-            'stat': self.statFPS
-        }
-
-        if not self.pause:
-            self.doFPSlogic(frameinfo)
-        for fn, d in self.repeatingcalldict.iteritems():
-            if thistime - d["oldtime"] > d["dursec"]:
-                self.repeatingcalldict[fn]["oldtime"] = thistime
-                self.repeatingcalldict[fn]["repeatcount"] += 1
-                fn(d)
-
-        nexttime = (time.time() - thistime) * 1000
-        newdur = min(1000, max(difftime * 800, 1000 / self.maxFPS) - nexttime)
-        if newdur < 1:
-            newdur = 1
-
-    def doFPSlogic(self, thisframe):
-        pass
 
 
 class SpriteObj(FastStorage):
@@ -162,9 +90,9 @@ class SpriteObj(FastStorage):
     def loadArgs(self, params):
         for k, v in params.iteritems():
             if k in ['movefnargs', 'shapefnargs']:
-                self.setdefault(k, {}).update(v.copy())
+                self.setdefault(k, {}).update(v)
             elif k in ['autoMoveFns']:
-                self[k] = v.copy()
+                self[k] = v
             else:
                 self[k] = v
 
@@ -517,29 +445,7 @@ class GameObjectGroup(list):
         for k, v in defaultdict.iteritems():
             setattr(self, k, kwds.pop(k, v))
 
-    # 표준 interface들 .
-    def __init__(self, *args, **kwds):
-        defaultdict = {
-            "enableshield": True,
-            "actratedict": {
-                "circularbullet": 1.0 / 30 * 1,
-                "superbullet": 1.0 / 10 * 1,
-                "hommingbullet": 1.0 / 10 * 1,
-                "bullet": 1.0 * 2,
-                "accel": 1.0 * 30
-            },
-            "effectObjs": [],
-
-            "membercount": 1,
-            "teamname": "red",
-            "teamcolor": "red",
-            "resource": "red"
-        }
-        self.setAttrs(defaultdict, kwds)
-
-        list.__init__(self, *args, **kwds)
-        self.ID = getSerial()
-
+    def initStat(self):
         statdict = {
             'total': 0,
             'bounceball': 0,
@@ -566,6 +472,30 @@ class GameObjectGroup(list):
             "maxcollision": 0,
             "maxlevelup": 0,
         }
+
+    # 표준 interface들 .
+    def __init__(self, *args, **kwds):
+        defaultdict = {
+            "enableshield": True,
+            "actratedict": {
+                "circularbullet": 1.0 / 30 * 1,
+                "superbullet": 1.0 / 10 * 1,
+                "hommingbullet": 1.0 / 10 * 1,
+                "bullet": 1.0 * 2,
+                "accel": 1.0 * 30
+            },
+            "effectObjs": [],
+
+            "membercount": 1,
+            "teamname": "red",
+            "teamcolor": "red",
+            "resource": "red"
+        }
+        self.setAttrs(defaultdict, kwds)
+
+        list.__init__(self, *args, **kwds)
+        self.ID = getSerial()
+        self.initStat()
 
     def makeMember(self):
         while len(self) < self.membercount or self[self.membercount - 1].objtype != "bounceball":
@@ -601,7 +531,8 @@ class GameObjectGroup(list):
             pos=target.pos,
             movefnargs={
                 "targetobj": target,
-                "anglespeed": anglespeed
+                "anglespeed": anglespeed,
+                'diffvector': diffvector,
             },
             objtype="shield",
             group=self,
@@ -622,7 +553,7 @@ class GameObjectGroup(list):
 
     def AddTargetFiredBullet(self, startpos, tagetpos):
         o = SpriteLogic(dict(
-            pos=startpos,
+            pos=startpos.copy(),
             movevector=Vector2.rect(1, (tagetpos - startpos).phase()),
             objtype="bullet",
             group=self,
@@ -633,7 +564,7 @@ class GameObjectGroup(list):
     def AddHommingBullet(self, startpos, target, expireFn=None):
         o = SpriteLogic(dict(
             expireFn=expireFn,
-            pos=startpos,
+            pos=startpos.copy(),
             movevector=Vector2.rect(1, Vector2.phase(target.pos - startpos)),
             movefnargs={
                 "accelvector": Vector2(0.5, 0.5),
@@ -647,7 +578,7 @@ class GameObjectGroup(list):
 
     def AddTargetSuperBullet(self, startpos, tagetpos):
         o = SpriteLogic(dict(
-            pos=startpos,
+            pos=startpos.copy(),
             movevector=Vector2.rect(1, Vector2.phase(tagetpos - startpos)),
             objtype="superbullet",
             group=self,
@@ -714,6 +645,7 @@ class GameObjectGroup(list):
             afterremovefnarg=(newpos,)
         )
 
+    # game logics
     def AutoMoveByTime(self, thistick):
         for a in self:
             a.AutoMoveByTime(thistick)
@@ -1096,7 +1028,7 @@ class AI0Random(GameObjectGroup):
         return self.mapPro2Act(actions, True)
 
 
-class ShootingGameControl(FPSlogic):
+class ShootingGameControl(FPSlogicBase):
 
     def makeTeam(self):
         randteam = [
@@ -1112,12 +1044,12 @@ class ShootingGameControl(FPSlogic):
         teams = [
             {"AIClass": AI2, "teamname": 'team0', 'resource': 0},
             {"AIClass": AI2, "teamname": 'team1', 'resource': 1},
-            {"AIClass": AI2, "teamname": 'team2', 'resource': 2},
-            {"AIClass": AI2, "teamname": 'team3', 'resource': 3},
-            {"AIClass": AI2, "teamname": 'team4', 'resource': 4},
-            {"AIClass": AI2, "teamname": 'team5', 'resource': 5},
-            {"AIClass": AI2, "teamname": 'team6', 'resource': 6},
-            {"AIClass": AI2, "teamname": 'team7', 'resource': 7},
+            # {"AIClass": AI2, "teamname": 'team2', 'resource': 2},
+            # {"AIClass": AI2, "teamname": 'team3', 'resource': 3},
+            # {"AIClass": AI2, "teamname": 'team4', 'resource': 4},
+            # {"AIClass": AI2, "teamname": 'team5', 'resource': 5},
+            # {"AIClass": AI2, "teamname": 'team6', 'resource': 6},
+            # {"AIClass": AI2, "teamname": 'team7', 'resource': 7},
         ] * 1
         teamobjs = []
         for sel, d in zip(itertools.cycle(randteam), teams):
@@ -1129,8 +1061,6 @@ class ShootingGameControl(FPSlogic):
                     teamcolor=sel["color"],
                     teamname=d["teamname"],
                     membercount=1,
-                    # enableshield = False,
-                    # inoutrate = d / 100.0,
                     effectObjs=self.dispgroup['effectObjs'],
                 )
                 o.makeMember()
@@ -1380,7 +1310,8 @@ class ShootingGameControl(FPSlogic):
 def doGame():
     game = ShootingGameControl()
     while True:
-        game.FPSTimer()
+        game.FPSTimer(0)
+        time.sleep(game.newdur / 1000.)
 
 if __name__ == "__main__":
     doGame()

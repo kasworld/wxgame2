@@ -231,16 +231,13 @@ class GameResource(object):
         return self.rcsdict[key]
 
 
-class FPSlogic():
+class FPSlogicBase(object):
 
     def FPSTimerInit(self, maxFPS=70):
         self.maxFPS = maxFPS
-        self.Bind(wx.EVT_TIMER, self.FPSTimer)
-        self.timer = wx.Timer(self)
         self.repeatingcalldict = {}
         self.pause = False
         self.statFPS = Statistics()
-        self.timer.Start(1000 / self.maxFPS, oneShot=True)
         self.frames = [time.time()]
         self.first = True
 
@@ -283,7 +280,7 @@ class FPSlogic():
 
         frameinfo = {
             "ThisFPS": 1 / difftime,
-            "sec":  difftime,
+            "sec": difftime,
             "FPS": fps,
             'stat': self.statFPS
         }
@@ -302,14 +299,27 @@ class FPSlogic():
             newdur = 1
         # print newdur,nexttime,difftime,self.maxFPS
         #newdur = 1
-        self.timer.Start(newdur, oneShot=True)
+        self.newdur = newdur
+
+    def doFPSlogic(self, thisframe):
+        pass
+
+
+class FPSlogic(FPSlogicBase):
+
+    def FPSTimerInit(self, maxFPS=70):
+        FPSlogicBase.FPSTimerInit(self, maxFPS)
+        self.Bind(wx.EVT_TIMER, self.FPSTimer)
+        self.timer = wx.Timer(self)
+        self.timer.Start(1000 / self.maxFPS, oneShot=True)
+
+    def FPSTimer(self, evt):
+        FPSlogicBase.FPSTimer(self, evt)
+        self.timer.Start(self.newdur, oneShot=True)
 
     def FPSTimerDel(self):
         self.timer.Stop()
         #del self.timer
-
-    def doFPSlogic(self, thisframe):
-        pass
 
 if __name__ == "__main__":
     pass
