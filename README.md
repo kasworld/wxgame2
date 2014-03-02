@@ -12,6 +12,24 @@ if wxpython 3.0 and windows :
     wx.color->wx.colour
 
 korean discription is
+
 http://kasw.blogspot.kr/2014/01/github.html
+
+http://kasw.blogspot.kr/2014/03/wxgame2.html
+
+update 2014-03-02
+----------------
+
+wxgame2.py
+
+- some code refine, bug fix
+
+wxgame2server.py, wxgame2client.py
+    
+- full refactoring for client/server version
+
+- C/S communication using file/pickle 
+
+
 
 
