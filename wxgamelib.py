@@ -206,6 +206,9 @@ def loadBitmap2RotatedMemoryDCArray(imagefilename, rangearg=(0, 360, 10),
 
 class GameResource(object):
 
+    """ game resource loading with cache
+    """
+
     def __init__(self, dirname):
         self.resourcedir = dirname
         self.rcsdict = {}
@@ -245,6 +248,7 @@ class FPSlogicBase(object):
         self.frameTime = frameTime
         self.frames = [self.frameTime()]
         self.first = True
+        self.frameCount = 0
 
     def registerRepeatFn(self, fn, dursec):
         """
@@ -267,6 +271,8 @@ class FPSlogicBase(object):
         return self.repeatingcalldict.pop(fn, [])
 
     def FPSTimer(self, evt):
+        self.frameCount += 1
+
         thistime = self.frameTime()
         self.frames.append(thistime)
         difftime = self.frames[-1] - self.frames[-2]
@@ -288,7 +294,8 @@ class FPSlogicBase(object):
             "sec": difftime,
             "FPS": fps,
             'stat': self.statFPS,
-            'thistime': thistime
+            'thistime': thistime,
+            'frameCount': self.frameCount
         }
 
         if not self.pause:

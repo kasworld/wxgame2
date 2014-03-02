@@ -50,6 +50,8 @@ from wxgamelib import *
 
 g_rcs = GameResource('resource')
 
+g_frameinfo = {}
+
 
 class BackGroundSplite(SpriteLogic):
 
@@ -181,8 +183,10 @@ class ShootingGameObject(SpriteLogic):
 
     def changeImage(self, args):
         if self.shapefnargs['memorydcs']:
-            self.currentimagenumber = int(self.shapefnargs['startimagenumber'] + (
-                self.thistick - self.createdTime) * self.shapefnargs['animationfps']) % len(self.shapefnargs['memorydcs'])
+            self.currentimagenumber = int(
+                self.shapefnargs['startimagenumber'] + (
+                    self.thistick - self.createdTime
+                ) * self.shapefnargs['animationfps']) % len(self.shapefnargs['memorydcs'])
 
     def Draw_Shape(self, pdc, clientsize, sizehint):
         pdc.SetPen(self.shapefnargs['pen'])
@@ -194,12 +198,15 @@ class ShootingGameObject(SpriteLogic):
         )
 
     def Draw_MDC(self, pdc, clientsize, sizehint):
+        cinum = g_frameinfo['frameCount'] % len(self.shapefnargs['memorydcs'])
         pdc.Blit(
             clientsize.x * self.pos.x - self.shapefnargs['dcsize'][0] / 2,
             clientsize.y * self.pos.y - self.shapefnargs['dcsize'][1] / 2,
             self.shapefnargs['dcsize'][0],
             self.shapefnargs['dcsize'][1],
-            self.shapefnargs['memorydcs'][self.currentimagenumber],
+            # self.shapefnargs['memorydcs'][self.currentimagenumber],
+            #random.choice(self.shapefnargs['memorydcs']),
+            self.shapefnargs['memorydcs'][cinum],
             0, 0,
             wx.COPY,
             True
@@ -219,40 +226,35 @@ class GameObjectDisplayGroup(GameObjectGroup):
     def loadResource(self):
         if self.resoueceReady is True:
             return
-        self.balldcs = [
-            g_rcs.loadBitmap2MemoryDCArray("%sball.gif" % self.resource),
-            g_rcs.loadBitmap2MemoryDCArray(
-                "%sball1.gif" % self.resource, reverse=True)
-        ]
-        self.bulletdcs = g_rcs.loadBitmap2MemoryDCArray(
-            "%sbullet.png" % self.resource)
-        self.superbulletdcs = g_rcs.loadBitmap2MemoryDCArray(
-            "%ssuper.png" % self.resource)
-        self.curcularmemorydc = g_rcs.loadBitmap2MemoryDCArray(
-            "%sbullet1.png" % self.resource)
-
         self.effectmemorydcs = g_rcs.loadBitmap2MemoryDCArray(
             "EvilTrace.png", 1, 8)
-        self.ringmemorydcs = g_rcs.loadBitmap2MemoryDCArray("ring.png", 4, 4)
-        self.earthmemorydcs = g_rcs.loadDirfiles2MemoryDCArray("earth")
-        self.earthmemorydcsr = g_rcs.loadDirfiles2MemoryDCArray(
-            "earth", reverse=True)
         self.ballbombmemorydcs = g_rcs.loadBitmap2MemoryDCArray(
             "explo1e.png", 8, 1)
         self.ballspawnmemorydcs = g_rcs.loadBitmap2MemoryDCArray(
             "spawn.png", 1, 6, reverse=True)
-        self.resoueceReady = True
 
         self.rcsdict = {
-            'bounceball': self.balldcs[0],
-            'bullet': self.bulletdcs,
-            'hommingbullet': self.ringmemorydcs,
-            'superbullet': self.superbulletdcs,
-            'circularbullet': self.curcularmemorydc,
-            'shield': self.curcularmemorydc,
-            'supershield': self.earthmemorydcs,
+            'bounceball': [
+                g_rcs.loadBitmap2MemoryDCArray("%sball.gif" % self.resource),
+                g_rcs.loadBitmap2MemoryDCArray(
+                    "%sball1.gif" % self.resource, reverse=True)
+            ],
+            'bullet': g_rcs.loadBitmap2MemoryDCArray(
+                "%sbullet.png" % self.resource),
+            'hommingbullet': g_rcs.loadBitmap2MemoryDCArray("ring.png", 4, 4),
+            'superbullet': g_rcs.loadBitmap2MemoryDCArray(
+                "%ssuper.png" % self.resource),
+            'circularbullet': g_rcs.loadBitmap2MemoryDCArray(
+                "%sbullet1.png" % self.resource),
+            'shield': g_rcs.loadBitmap2MemoryDCArray(
+                "%sbullet1.png" % self.resource),
+            'supershield': [
+                g_rcs.loadDirfiles2MemoryDCArray("earth"),
+                g_rcs.loadDirfiles2MemoryDCArray("earth", reverse=True)
+            ],
             'effect': self.ballbombmemorydcs,
         }
+        self.resoueceReady = True
 
     def __init__(self, *args, **kwds):
         self.resoueceReady = False
@@ -325,6 +327,10 @@ class ShootingGameControl(wx.Control, FPSlogic):
             gog = GameObjectDisplayGroup(resource=og['resource'])
             for objid, objtype, objpos, objmovevector in og['objs']:
                 if objtype in gog.rcsdict:
+                    rcs = gog.rcsdict[objtype]
+                    if objtype in ['bounceball', 'supershield']:
+                        rcs = random.choice(rcs)
+
                     o = ShootingGameObject(dict(
                         objtype=objtype,
                         pos=objpos,
@@ -332,7 +338,7 @@ class ShootingGameControl(wx.Control, FPSlogic):
                         group=gog,
                         shapefn=ShootingGameObject.ShapeChange_None,
                         shapefnargs={
-                            'memorydcs': gog.rcsdict[objtype]
+                            'memorydcs': rcs
                         },
                     ))
                     gog.append(o)
@@ -353,7 +359,7 @@ class ShootingGameControl(wx.Control, FPSlogic):
         return loadlist
 
     def doFPSlogic(self, frameinfo):
-
+        g_frameinfo.update(frameinfo)
         self.thistick = frameinfo['thistime']
 
         # for o in self.dispgroup['objplayers']:

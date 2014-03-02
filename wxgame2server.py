@@ -870,13 +870,6 @@ class AI1(GameObjectGroup):
 
 class AI2(GameObjectGroup):
 
-    def __init__(self, *args, **kwds):
-        def setAttr(name, defaultvalue):
-            self.__dict__[name] = kwds.pop(name, defaultvalue)
-            return self.__dict__[name]
-        setAttr("inoutrate", 0.5)
-        GameObjectGroup.__init__(self, *args, **kwds)
-
     def SelectAction(self, aimingtargetlist, src):
         fps = self.thisFPS
 
