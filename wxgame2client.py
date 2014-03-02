@@ -38,6 +38,7 @@ import math
 import random
 import itertools
 import pprint
+import zlib
 import cPickle as pickle
 
 import wx
@@ -350,7 +351,7 @@ class ShootingGameControl(wx.Control, FPSlogic):
         with open('state.pklz', 'rb') as f:
             recvdata = f.read()
         try:
-            loadlist = pickle.loads(recvdata)
+            loadlist = pickle.loads(zlib.decompress(recvdata))
         except:
             print 'state load fail'
             return

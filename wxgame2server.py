@@ -1036,7 +1036,7 @@ class ShootingGameControl(FPSlogicBase):
             {"AIClass": AI2, "teamname": 'team5', 'resource': 5},
             {"AIClass": AI2, "teamname": 'team6', 'resource': 6},
             {"AIClass": AI2, "teamname": 'team7', 'resource': 7},
-        ] * 1
+        ] * 2
         teamobjs = []
         for sel, d in zip(itertools.cycle(randteam), teams):
             selpos = d.get('resource', -1)
@@ -1245,7 +1245,8 @@ class ShootingGameControl(FPSlogicBase):
 
     def saveState(self):
         savelist = self.makeState()
-        tosenddata = pickle.dumps(savelist, pickle.HIGHEST_PROTOCOL)
+        tosenddata = zlib.compress(
+            pickle.dumps(savelist, pickle.HIGHEST_PROTOCOL))
         with open('state.pklz', 'wb') as f:
             f.write(tosenddata)
         return len(tosenddata)
