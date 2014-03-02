@@ -32,12 +32,6 @@ Version = '1.6.10'
 
 import sys
 import os.path
-
-from euclid import Vector2
-
-import wx
-import wx.grid
-import wx.lib.colourdb
 import os
 import time
 import math
@@ -46,7 +40,12 @@ import itertools
 import pprint
 import cPickle as pickle
 
-from wxgame2server import SpriteLogic, GameObjectGroup, getFrameTime
+import wx
+import wx.grid
+import wx.lib.colourdb
+
+from euclid import Vector2
+from wxgame2server import SpriteLogic, GameObjectGroup
 from wxgamelib import *
 
 g_rcs = GameResource('resource')
@@ -276,7 +275,7 @@ class ShootingGameControl(wx.Control, FPSlogic):
         self.Bind(wx.EVT_PAINT, self._OnPaint)
         self.Bind(wx.EVT_SIZE, self._OnSize)
         self.Bind(wx.EVT_KEY_DOWN, self.OnKeyDown)
-        self.FPSTimerInit(70)
+        self.FPSTimerInit(getFrameTime, 70)
         self.SetBackgroundColour(wx.Colour(0x0, 0x0, 0x0))
 
         self.dispgroup = {}
@@ -337,6 +336,8 @@ class ShootingGameControl(wx.Control, FPSlogic):
                         },
                     ))
                     gog.append(o)
+                    # if objtype == 'shield':
+                    #     print objid, objtype, objpos, objmovevector
             self.dispgroup['objplayers'].append(gog)
 
     def loadState(self):
@@ -352,9 +353,8 @@ class ShootingGameControl(wx.Control, FPSlogic):
         return loadlist
 
     def doFPSlogic(self, frameinfo):
-        self.loadState()
 
-        self.thistick = getFrameTime()
+        self.thistick = frameinfo['thistime']
 
         # for o in self.dispgroup['objplayers']:
         #     o.AutoMoveByTime(self.thistick)
@@ -373,6 +373,8 @@ class ShootingGameControl(wx.Control, FPSlogic):
         for o in self.dispgroup['frontgroup']:
             if random.random() < 0.001:
                 o.setAccelVector(o.getAccelVector().addAngle(random2pi()))
+
+        self.loadState()
 
         self.Refresh(False)
 

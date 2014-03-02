@@ -28,6 +28,10 @@ srcdir = os.path.dirname(os.path.abspath(sys.argv[0]))
 getSerial = itertools.count().next
 
 
+def getFrameTime():
+    return time.time()
+
+
 def random2pi(m=2):
     return math.pi * m * (random.random() - 0.5)
 
@@ -233,12 +237,13 @@ class GameResource(object):
 
 class FPSlogicBase(object):
 
-    def FPSTimerInit(self, maxFPS=70):
+    def FPSTimerInit(self, frameTime, maxFPS=70, ):
         self.maxFPS = maxFPS
         self.repeatingcalldict = {}
         self.pause = False
         self.statFPS = Statistics()
-        self.frames = [time.time()]
+        self.frameTime = frameTime
+        self.frames = [self.frameTime()]
         self.first = True
 
     def registerRepeatFn(self, fn, dursec):
@@ -253,8 +258,8 @@ class FPSlogicBase(object):
         """
         self.repeatingcalldict[fn] = {
             "dursec": dursec,
-            "oldtime": time.time(),
-            "starttime": time.time(),
+            "oldtime": self.frameTime(),
+            "starttime": self.frameTime(),
             "repeatcount": 0}
         return self
 
@@ -262,7 +267,7 @@ class FPSlogicBase(object):
         return self.repeatingcalldict.pop(fn, [])
 
     def FPSTimer(self, evt):
-        thistime = time.time()
+        thistime = self.frameTime()
         self.frames.append(thistime)
         difftime = self.frames[-1] - self.frames[-2]
 
@@ -282,23 +287,23 @@ class FPSlogicBase(object):
             "ThisFPS": 1 / difftime,
             "sec": difftime,
             "FPS": fps,
-            'stat': self.statFPS
+            'stat': self.statFPS,
+            'thistime': thistime
         }
 
         if not self.pause:
             self.doFPSlogic(frameinfo)
+
         for fn, d in self.repeatingcalldict.iteritems():
             if thistime - d["oldtime"] > d["dursec"]:
                 self.repeatingcalldict[fn]["oldtime"] = thistime
                 self.repeatingcalldict[fn]["repeatcount"] += 1
                 fn(d)
 
-        nexttime = (time.time() - thistime) * 1000
+        nexttime = (self.frameTime() - thistime) * 1000
         newdur = min(1000, max(difftime * 800, 1000 / self.maxFPS) - nexttime)
         if newdur < 1:
             newdur = 1
-        # print newdur,nexttime,difftime,self.maxFPS
-        #newdur = 1
         self.newdur = newdur
 
     def doFPSlogic(self, thisframe):
@@ -307,8 +312,8 @@ class FPSlogicBase(object):
 
 class FPSlogic(FPSlogicBase):
 
-    def FPSTimerInit(self, maxFPS=70):
-        FPSlogicBase.FPSTimerInit(self, maxFPS)
+    def FPSTimerInit(self, frameTime, maxFPS=70):
+        FPSlogicBase.FPSTimerInit(self, frameTime, maxFPS)
         self.Bind(wx.EVT_TIMER, self.FPSTimer)
         self.timer = wx.Timer(self)
         self.timer.Start(1000 / self.maxFPS, oneShot=True)
@@ -319,7 +324,6 @@ class FPSlogic(FPSlogicBase):
 
     def FPSTimerDel(self):
         self.timer.Stop()
-        #del self.timer
 
 if __name__ == "__main__":
     pass

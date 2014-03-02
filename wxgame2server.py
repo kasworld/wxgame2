@@ -33,11 +33,7 @@ except:
 
 from euclid import Vector2
 
-from wxgamelib import getSerial, random2pi, Statistics, FastStorage, FPSlogicBase
-
-
-def getFrameTime():
-    return time.time()
+from wxgamelib import getSerial, random2pi, Statistics, FastStorage, FPSlogicBase, getFrameTime
 
 
 class SpriteObj(FastStorage):
@@ -390,10 +386,6 @@ SpriteObj.typeDefaultDict = {
         'secToLifeEnd': -1.0,
         'collisionCricle': 0.008,
         'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-        'bounceDamping': .7,
-        "movefnargs": {
-            "anglespeed": 0.05,
-        },
         'movefn': SpriteLogic.Move_SyncTarget,
         'wallactionfn': SpriteLogic.WallAction_None,
         'shapefnargs': {'animationfps': 30},
@@ -504,31 +496,31 @@ class GameObjectGroup(list):
     def addMember(self, newpos):
         self.statistic['act']['bounceball'] += 1
         self.statistic['act']['total'] += 1
-        target = self.AddBouncBall(
-            objtype='bounceball',
-            pos=newpos,
-            group=self,
-        )
-        if self.enableshield:
-            self.statistic['act']['shield'] += 1
-            for i, a in enumerate(range(0, 360, 30)):
-                self.AddShield(
-                    target=target,
-                    diffvector=Vector2(0.03, 0).addAngle(
-                        2 * math.pi * a / 360.0),
-                    anglespeed=math.pi if i % 2 == 0 else -math.pi
-                )
+        target = self.AddBouncBall(newpos)
+        # if self.enableshield:
+        self.statistic['act']['shield'] += 1
+        for i, a in enumerate(range(0, 360, 30)):
+            self.AddShield(
+                target=target,
+                diffvector=Vector2(0.03, 0).addAngle(
+                    2 * math.pi * a / 360.0),
+                anglespeed=math.pi if i % 2 == 0 else -math.pi
+            )
         return target
 
     # 이후는 SpriteLogic를 편하게 생성하기위한 factory functions
-    def AddBouncBall(self, **kwargs):
-        o = SpriteLogic(kwargs)
+    def AddBouncBall(self, newpos):
+        o = SpriteLogic(dict(
+            objtype='bounceball',
+            pos=newpos,
+            group=self,
+        ))
         self.insert(0, o)
         return o
 
     def AddShield(self, target, diffvector, anglespeed):
         o = SpriteLogic(dict(
-            pos=target.pos,
+            pos=target.pos + diffvector,
             movefnargs={
                 "targetobj": target,
                 "anglespeed": anglespeed,
@@ -587,12 +579,13 @@ class GameObjectGroup(list):
         return self
 
     def AddSuperShield(self, target, expireFn):
+        diffvector = Vector2(0.06, 0).addAngle(random2pi())
         o = SpriteLogic(dict(
             expireFn=expireFn,
-            pos=target.pos,
+            pos=target.pos + diffvector,
             movefnargs={
                 "targetobj": target,
-                "diffvector": Vector2(0.06, 0).addAngle(random2pi()),
+                "diffvector": diffvector,
                 "anglespeed": random2pi()
             },
             objtype="supershield",
@@ -1044,12 +1037,12 @@ class ShootingGameControl(FPSlogicBase):
         teams = [
             {"AIClass": AI2, "teamname": 'team0', 'resource': 0},
             {"AIClass": AI2, "teamname": 'team1', 'resource': 1},
-            # {"AIClass": AI2, "teamname": 'team2', 'resource': 2},
-            # {"AIClass": AI2, "teamname": 'team3', 'resource': 3},
-            # {"AIClass": AI2, "teamname": 'team4', 'resource': 4},
-            # {"AIClass": AI2, "teamname": 'team5', 'resource': 5},
-            # {"AIClass": AI2, "teamname": 'team6', 'resource': 6},
-            # {"AIClass": AI2, "teamname": 'team7', 'resource': 7},
+            {"AIClass": AI2, "teamname": 'team2', 'resource': 2},
+            {"AIClass": AI2, "teamname": 'team3', 'resource': 3},
+            {"AIClass": AI2, "teamname": 'team4', 'resource': 4},
+            {"AIClass": AI2, "teamname": 'team5', 'resource': 5},
+            {"AIClass": AI2, "teamname": 'team6', 'resource': 6},
+            {"AIClass": AI2, "teamname": 'team7', 'resource': 7},
         ] * 1
         teamobjs = []
         for sel, d in zip(itertools.cycle(randteam), teams):
@@ -1071,7 +1064,7 @@ class ShootingGameControl(FPSlogicBase):
         def setAttr(name, defaultvalue):
             self.__dict__[name] = kwds.pop(name, defaultvalue)
             return self.__dict__[name]
-        self.FPSTimerInit(70)
+        self.FPSTimerInit(getFrameTime, 70)
 
         self.dispgroup = {}
         self.dispgroup['backgroup'] = GameObjectGroup()
@@ -1265,7 +1258,7 @@ class ShootingGameControl(FPSlogicBase):
         return len(tosenddata)
 
     def doFPSlogic(self, frameinfo):
-        self.thistick = getFrameTime()
+        self.thistick = frameinfo['thistime']
 
         # bb = ["%s:%s" % aa for aa in frameinfo.items()]
         # a = [len(b) for b in self.dispgroup]

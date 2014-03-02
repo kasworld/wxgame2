@@ -1444,7 +1444,7 @@ class wxGameContentsControl(wx.Control, FPSlogic):
 
         # self.SetBackgroundStyle(wx.BG_STYLE_CUSTOM)
         self.dispgroup = []
-        self.FPSTimerInit(70)
+        self.FPSTimerInit(getFrameTime, 70)
 
     def OnKeyDown(self, evt):
         keycode = evt.GetKeyCode()
