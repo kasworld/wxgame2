@@ -227,12 +227,6 @@ class GameObjectDisplayGroup(GameObjectGroup):
     def loadResource(self):
         if self.resoueceReady is True:
             return
-        self.effectmemorydcs = g_rcs.loadBitmap2MemoryDCArray(
-            "EvilTrace.png", 1, 8)
-        self.ballbombmemorydcs = g_rcs.loadBitmap2MemoryDCArray(
-            "explo1e.png", 8, 1)
-        self.ballspawnmemorydcs = g_rcs.loadBitmap2MemoryDCArray(
-            "spawn.png", 1, 6, reverse=True)
 
         self.rcsdict = {
             'bounceball': [
@@ -253,7 +247,12 @@ class GameObjectDisplayGroup(GameObjectGroup):
                 g_rcs.loadDirfiles2MemoryDCArray("earth"),
                 g_rcs.loadDirfiles2MemoryDCArray("earth", reverse=True)
             ],
-            'effect': self.ballbombmemorydcs,
+            'spriteexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
+                "EvilTrace.png", 1, 8),
+            'ballexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
+                "explo1e.png", 8, 1),
+            'spawneffect': g_rcs.loadBitmap2MemoryDCArray(
+                "spawn.png", 1, 6, reverse=True),
         }
         self.resoueceReady = True
 

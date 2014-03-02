@@ -399,11 +399,30 @@ SpriteObj.typeDefaultDict = {
         'wallactionfn': SpriteLogic.WallAction_None,
         'shapefnargs': {'animationfps': 30},
     },
-    "effect": {
-        "objtype": 'effect',
-        'secToLifeEnd': 1.0,
+    "spriteexplosioneffect": {
+        "objtype": 'spriteexplosioneffect',
+        'secToLifeEnd': .25,
         'collisionCricle': 0,
         'collisionTarget': [],
+        'movefn': SpriteLogic.Move_Vector,
+        'wallactionfn': SpriteLogic.WallAction_Remove,
+        'movefnargs': {"accelvector": Vector2(0, 0)},
+    },
+    "ballexplosioneffect": {
+        "objtype": 'ballexplosioneffect',
+        'secToLifeEnd': 0.5,
+        'collisionCricle': 0,
+        'collisionTarget': [],
+        'movefn': SpriteLogic.Move_Vector,
+        'wallactionfn': SpriteLogic.WallAction_Remove,
+        'movefnargs': {"accelvector": Vector2(0, 0)},
+    },
+    "spawneffect": {
+        "objtype": 'spawneffect',
+        'secToLifeEnd': 0.5,
+        'collisionCricle': 0,
+        'collisionTarget': [],
+        'movevector': Vector2(0, 0),
         'movefn': SpriteLogic.Move_Vector,
         'wallactionfn': SpriteLogic.WallAction_Remove,
         'movefnargs': {"accelvector": Vector2(0, 0)},
@@ -594,49 +613,35 @@ class GameObjectGroup(list):
         self.append(o)
         return self
 
-    def AddExplosionEffect(self, pos, dur, movevector, afterremovefn, afterremovefnarg):
+    def addSpriteExplosionEffect(self, src):
         self.append(
             SpriteLogic(dict(
-                pos=pos,
-                secToLifeEnd=dur,
-                movevector=movevector,
-                afterremovefn=afterremovefn,
-                afterremovefnarg=afterremovefnarg,
-                objtype="effect",
-                group=self,
-            ))
-        )
-        return self
-
-    def addSpriteExplosionEffect(self, src):
-        self.AddExplosionEffect(
-            src.pos,
-            .25,
-            movevector=src.movevector / 4,
-            afterremovefn=None,
-            afterremovefnarg=()
-        )
+                pos=src.pos,
+                movevector=src.movevector / 4,
+                afterremovefn=None,
+                afterremovefnarg=(),
+                objtype="spriteexplosioneffect"
+            )))
 
     def addBallExplosionEffect(self, effectObjs, g1, b):
-        # pprint.pprint(("addBallExplosionEffect", self, g1))
-        self.AddExplosionEffect(
-            b.pos,
-            0.5,
-            movevector=b.movevector / 4,
-            afterremovefn=self.addSpawnEffect,
-            afterremovefnarg=(effectObjs, g1),
-        )
+        self.append(
+            SpriteLogic(dict(
+                pos=b.pos,
+                movevector=b.movevector / 4,
+                afterremovefn=self.addSpawnEffect,
+                afterremovefnarg=(effectObjs, g1),
+                objtype="ballexplosioneffect"
+            )))
 
     def addSpawnEffect(self, effectObjs, g1):
-        # pprint.pprint(("addSpawnEffect", self, g1))
         newpos = Vector2(random.random(), random.random())
-        self.AddExplosionEffect(
-            newpos,
-            .5,
-            movevector=Vector2(0, 0),
-            afterremovefn=g1.addMember,
-            afterremovefnarg=(newpos,)
-        )
+        self.append(
+            SpriteLogic(dict(
+                pos=newpos,
+                afterremovefn=g1.addMember,
+                afterremovefnarg=(newpos,),
+                objtype="spawneffect"
+            )))
 
     # game logics
     def AutoMoveByTime(self, thistick):
@@ -1036,7 +1041,7 @@ class ShootingGameControl(FPSlogicBase):
             {"AIClass": AI2, "teamname": 'team5', 'resource': 5},
             {"AIClass": AI2, "teamname": 'team6', 'resource': 6},
             {"AIClass": AI2, "teamname": 'team7', 'resource': 7},
-        ] * 2
+        ] * 1
         teamobjs = []
         for sel, d in zip(itertools.cycle(randteam), teams):
             selpos = d.get('resource', -1)
