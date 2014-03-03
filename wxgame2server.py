@@ -251,6 +251,8 @@ class SpriteLogic(SpriteObj):
         self.movevector += self.movefnargs["accelvector"]
 
     def Move_SyncTarget(self, args):
+        if self.movefnargs["targetobj"] is None:
+            return
         self.enabled = self.movefnargs["targetobj"].enabled
         if not self.enabled:
             return
@@ -261,6 +263,8 @@ class SpriteLogic(SpriteObj):
                            "targetobj"].pos - self.pos + self.movefnargs["diffvector"]) / dur
 
     def Move_FollowTarget(self, args):
+        if self.movefnargs["targetobj"] is None:
+            return
         self.enabled = self.movefnargs["targetobj"].enabled
         dur = (self.thistick - self.lastAutoMoveTick)
         self.accelToPos(self.movefnargs["targetobj"].pos)

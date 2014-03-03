@@ -199,15 +199,13 @@ class ShootingGameObject(SpriteLogic):
         )
 
     def Draw_MDC(self, pdc, clientsize, sizehint):
-        cinum = g_frameinfo['frameCount'] % len(self.shapefnargs['memorydcs'])
+        self.currentimagenumber = g_frameinfo['frameCount'] % len(self.shapefnargs['memorydcs'])
         pdc.Blit(
             clientsize.x * self.pos.x - self.shapefnargs['dcsize'][0] / 2,
             clientsize.y * self.pos.y - self.shapefnargs['dcsize'][1] / 2,
             self.shapefnargs['dcsize'][0],
             self.shapefnargs['dcsize'][1],
-            # self.shapefnargs['memorydcs'][self.currentimagenumber],
-            #random.choice(self.shapefnargs['memorydcs']),
-            self.shapefnargs['memorydcs'][cinum],
+            self.shapefnargs['memorydcs'][self.currentimagenumber],
             0, 0,
             wx.COPY,
             True
