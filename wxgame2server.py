@@ -1241,7 +1241,10 @@ class ShootingGameControl(FPSlogicBase):
             }
             savelist.append(cog)
             for o in og:
-                cog['objs'].append((o.ID, o.objtype, o.pos, o.movevector))
+                cog['objs'].append(
+                    (o.ID, o.objtype, (o.pos.x, o.pos.y),
+                     (o.movevector.x, o.movevector.y))
+                )
 
         og = self.dispgroup['effectObjs']
         cog = {
@@ -1252,15 +1255,18 @@ class ShootingGameControl(FPSlogicBase):
         }
         savelist.append(cog)
         for o in og:
-            cog['objs'].append((o.ID, o.objtype, o.pos, o.movevector))
+                cog['objs'].append(
+                    (o.ID, o.objtype, (o.pos.x, o.pos.y),
+                     (o.movevector.x, o.movevector.y))
+                )
 
         return savelist
 
     def saveState(self):
         savelist = self.makeState()
-        tosenddata = zlib.compress(
-            pickle.dumps(savelist, pickle.HIGHEST_PROTOCOL))
-        with open('state.pklz', 'wb') as f:
+        tosenddata = zlib.compress(json.dumps(savelist))
+        #tosenddata = json.dumps(savelist)
+        with open('state.jsonz', 'wb') as f:
             f.write(tosenddata)
         return len(tosenddata)
 

@@ -24,6 +24,11 @@ import itertools
 import pprint
 import zlib
 import cPickle as pickle
+import traceback
+try:
+    import simplejson as json
+except:
+    import json
 
 import wx
 import wx.grid
@@ -183,7 +188,8 @@ class ShootingGameObject(SpriteLogic):
         )
 
     def Draw_MDC(self, pdc, clientsize, sizehint):
-        self.currentimagenumber = g_frameinfo['frameCount'] % len(self.shapefnargs['memorydcs'])
+        self.currentimagenumber = g_frameinfo[
+            'frameCount'] % len(self.shapefnargs['memorydcs'])
         pdc.Blit(
             clientsize.x * self.pos.x - self.shapefnargs['dcsize'][0] / 2,
             clientsize.y * self.pos.y - self.shapefnargs['dcsize'][1] / 2,
@@ -315,8 +321,8 @@ class ShootingGameControl(wx.Control, FPSlogic):
 
                     o = ShootingGameObject(dict(
                         objtype=objtype,
-                        pos=objpos,
-                        movevector=objmovevector,
+                        pos=Vector2(*objpos),
+                        movevector=Vector2(*objmovevector),
                         group=gog,
                         shapefn=ShootingGameObject.ShapeChange_None,
                         shapefnargs={
@@ -329,12 +335,13 @@ class ShootingGameControl(wx.Control, FPSlogic):
             self.dispgroup['objplayers'].append(gog)
 
     def loadState(self):
-        with open('state.pklz', 'rb') as f:
+        with open('state.jsonz', 'rb') as f:
             recvdata = f.read()
         try:
-            loadlist = pickle.loads(zlib.decompress(recvdata))
+            loadlist = json.loads(zlib.decompress(recvdata))
         except:
             print 'state load fail'
+            #print traceback.format_exc()
             return
 
         self.applyState(loadlist)
