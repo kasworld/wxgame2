@@ -1024,6 +1024,9 @@ class AI0Random(GameObjectGroup):
         return self.mapPro2Act(actions, True)
 
 
+gameState = ''
+
+
 class ShootingGameControl(FPSlogicBase):
 
     def makeTeam(self):
@@ -1263,11 +1266,10 @@ class ShootingGameControl(FPSlogicBase):
         return savelist
 
     def saveState(self):
+        global gameState
         savelist = self.makeState()
         tosenddata = zlib.compress(json.dumps(savelist))
-        #tosenddata = json.dumps(savelist)
-        with open('state.jsonz', 'wb') as f:
-            f.write(tosenddata)
+        gameState = tosenddata
         return len(tosenddata)
 
     def doFPSlogic(self, frameinfo):
@@ -1319,5 +1321,52 @@ def doGame():
         game.FPSTimer(0)
         time.sleep(game.newdur / 1000.)
 
+# ================
+
+import threading
+import SocketServer
+import struct
+headerStruct = struct.Struct('!I')
+
+
+class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
+
+    def handle(self):
+        # data = self.request.recv(1024)
+        # cur_thread = threading.current_thread()
+        # response = "{}: {}".format(cur_thread.name, data)
+        senddata = gameState
+        self.request.sendall(headerStruct.pack(len(senddata)))
+        self.request.sendall(senddata)
+
+
+class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
+    pass
+
+
+import signal
+import sys
+
+
+def runService():
+    HOST, PORT = "localhost", 22517
+
+    server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
+    #ip, port = server.server_address
+
+    # Start a thread with the server -- that thread will then start one
+    # more thread for each request
+    server_thread = threading.Thread(target=server.serve_forever)
+    # Exit the server thread when the main thread terminates
+    server_thread.daemon = True
+    server_thread.start()
+
+    def sigstophandler(signum, frame):
+        print 'User Termination'
+        server.shutdown()
+        sys.exit(0)
+    signal.signal(signal.SIGINT, sigstophandler)
+
 if __name__ == "__main__":
+    runService()
     doGame()

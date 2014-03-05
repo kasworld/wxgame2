@@ -257,6 +257,41 @@ class GameObjectDisplayGroup(GameObjectGroup):
         return self
 
 
+# ================
+
+import socket
+import struct
+headerStruct = struct.Struct('!I')
+
+
+def recvData(sock, toreceivelen, receivedata):
+    while len(receivedata) < toreceivelen:
+        # print len(receivedata), toreceivelen
+        receivedata += sock.recv(toreceivelen - len(receivedata))
+    return receivedata
+
+
+def getData():
+    HOST, PORT = "localhost", 22517
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((HOST, PORT))
+    bodydata = ''
+    try:
+        receivedata = ''
+        receivedata = recvData(sock, struct.calcsize('!I'), receivedata)
+
+        bodylen = headerStruct.unpack(receivedata)[0]
+        # print len(receivedata), bodylen
+        bodydata = recvData(sock, bodylen, bodydata)
+    except:
+        print traceback.format_exc()
+    finally:
+        sock.close()
+    return bodydata
+# ================
+
+
 # 주 canvas class 들 wxPython전용.
 class ShootingGameControl(wx.Control, FPSlogic):
 
@@ -335,17 +370,14 @@ class ShootingGameControl(wx.Control, FPSlogic):
             self.dispgroup['objplayers'].append(gog)
 
     def loadState(self):
-        with open('state.jsonz', 'rb') as f:
-            recvdata = f.read()
         try:
+            recvdata = getData()
             loadlist = json.loads(zlib.decompress(recvdata))
+            self.applyState(loadlist)
         except:
             print 'state load fail'
-            #print traceback.format_exc()
+            print traceback.format_exc()
             return
-
-        self.applyState(loadlist)
-        return loadlist
 
     def doFPSlogic(self, frameinfo):
         g_frameinfo.update(frameinfo)
@@ -406,10 +438,6 @@ def runtest():
     frame_1.Show()
     app.MainLoop()
 
-
-def test():
-    app = wx.App()
-    GameObjectDisplayGroup()
 
 if __name__ == "__main__":
     runtest()
