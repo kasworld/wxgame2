@@ -1,7 +1,7 @@
 ﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""
+""" wxgame client
     wxGameFramework
     Copyright 2011 kasw <kasworld@gmail.com>
     wxpython을 사용해서 게임을 만들기위한 프레임웍과 테스트용 게임 3가지
@@ -10,25 +10,9 @@
     collision은 원형: 현재 프레임의 위치만을 기준으로 검출한다.
     모든? action은 frame 간의 시간차에 따라 보정 된다.
     문제점은 frame간에 지나가 버린 경우 이동 루트상으론 collision 이 일어나야 하지만 검출 불가.
-AI dev order
-random
-center circle
-near bullet
-birth circle
-move outer
-move inner
-super/homming near
-super/homming rate
-bullet rate near,far
-bullet near, random
-estmate aim
-evasion bullets
-evasion inner
-evasion outer
-evasion back + rand angle
 """
 
-Version = '1.6.10'
+Version = '2.0.0'
 
 import sys
 import os.path

@@ -66,6 +66,7 @@ class SpriteObj(FastStorage):
 
         "level": 0,
         "group": None,
+
         'lastAutoMoveTick': 0,
         'autoMoveFns': [],
         'fireTimeDict': {},
@@ -1230,15 +1231,6 @@ class ShootingGameControl(FPSlogicBase):
                                      'ThisFPS'], self.thistick)
 
     def makeState(self):
-        """
-        savelist = [
-            {
-            'teamname': teamname,
-            'classname': AI class name,
-            'objs': [ (type, pos, mvvt)]
-            }
-        ]
-        """
         savelist = []
         for og in self.dispgroup['objplayers']:
             cog = {
@@ -1250,6 +1242,18 @@ class ShootingGameControl(FPSlogicBase):
             savelist.append(cog)
             for o in og:
                 cog['objs'].append((o.ID, o.objtype, o.pos, o.movevector))
+
+        og = self.dispgroup['effectObjs']
+        cog = {
+            'id': og.ID,
+            'teamname': og.teamname,
+            'resource': og.resource,
+            'objs': []
+        }
+        savelist.append(cog)
+        for o in og:
+            cog['objs'].append((o.ID, o.objtype, o.pos, o.movevector))
+
         return savelist
 
     def saveState(self):
