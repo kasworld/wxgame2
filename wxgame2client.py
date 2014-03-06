@@ -344,6 +344,19 @@ class ShootingGameControl(wx.Control, FPSlogic):
         self.dispgroup['effectObjs'].DrawToWxDC(pdc)
         self.dispgroup['frontgroup'].DrawToWxDC(pdc)
 
+    def doFireAndAutoMoveByTime(self, frameinfo):
+        # 그룹내의 bounceball 들을 AI automove 한다.
+        # 자신과 같은 팀을 제외한 targets을 만든다.
+        selmov = self.dispgroup['objplayers'][:]
+        random.shuffle(selmov)
+        for aa in selmov:
+            targets = []
+            for bb in self.dispgroup['objplayers']:
+                if aa.teamname != bb.teamname:
+                    targets.append(bb)
+            aa.FireAndAutoMoveByTime(targets, frameinfo[
+                                     'ThisFPS'], self.thistick)
+
     def applyState(self, loadlist):
         self.dispgroup['objplayers'] = []
         for og in loadlist:
@@ -365,8 +378,6 @@ class ShootingGameControl(wx.Control, FPSlogic):
                         },
                     ))
                     gog.append(o)
-                    # if objtype == 'shield':
-                    #     print objid, objtype, objpos, objmovevector
             self.dispgroup['objplayers'].append(gog)
 
     def loadState(self):
@@ -383,25 +394,23 @@ class ShootingGameControl(wx.Control, FPSlogic):
         g_frameinfo.update(frameinfo)
         self.thistick = frameinfo['thistime']
 
-        # for o in self.dispgroup['objplayers']:
-        #     o.AutoMoveByTime(self.thistick)
-
-        self.dispgroup['effectObjs'].AutoMoveByTime(
-            self.thistick).RemoveDisabled()
-
         self.dispgroup['backgroup'].AutoMoveByTime(self.thistick)
         for o in self.dispgroup['backgroup']:
             if random.random() < 0.001:
                 o.setAccelVector(o.getAccelVector().addAngle(random2pi()))
-        # print self.dispgroup
+
+        self.dispgroup['effectObjs'].AutoMoveByTime(
+            self.thistick).RemoveDisabled()
 
         self.dispgroup['frontgroup'].AutoMoveByTime(self.thistick)
-
         for o in self.dispgroup['frontgroup']:
             if random.random() < 0.001:
                 o.setAccelVector(o.getAccelVector().addAngle(random2pi()))
 
         self.loadState()
+
+        # AI move
+        #self.doFireAndAutoMoveByTime(frameinfo)
 
         self.Refresh(False)
 

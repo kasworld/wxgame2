@@ -712,46 +712,49 @@ class GameObjectGroup(list):
             sttime = getFrameTime()
             actions = self.SelectAction(aimingtargetlist, src)
             self.statistic["totalAItime"] += getFrameTime() - sttime
-
-            for act, actargs in actions:
-                if self.actCount(act) > 0:
-                    self.statistic['act'][act] += 1
-                    if act == "circularbullet":
-                        self.AddCircularBullet2(src.pos)
-                    elif act == "superbullet":
-                        if actargs:
-                            self.AddTargetSuperBullet(
-                                src.pos, actargs)
-                        else:
-                            print "Error %s %s %s" % (act, src, actargs)
-                    elif act == "hommingbullet":
-                        if actargs:
-                            self.AddHommingBullet(
-                                src.pos,
-                                actargs,
-                                expireFn=self.effectObjs.addSpriteExplosionEffect
-                            )
-                        else:
-                            print "Error %s %s %s" % (act, src, actargs)
-                    elif act == "bullet":
-                        if actargs:
-                            self.AddTargetFiredBullet(src.pos, actargs)
-                        else:
-                            print "Error %s %s %s" % (act, src, actargs)
-                    elif act == "accel":
-                        if actargs:
-                            src.setAccelVector(actargs)
-                            self.statistic['hitto'][act] += abs(actargs)
-                        else:
-                            print "Error %s %s %s" % (act, src, actargs)
-                    else:
-                        pass
-                    src.fireTimeDict[act] = self.thistick
-                else:
-                    if act != 'doNothing':
-                        print "%s action %s overuse fail" % (self.teamname, act)
+            self.doSelectedActions(actions, src)
         self.AutoMoveByTime(thistick)
         return self
+
+    def doSelectedActions(self, actions, src):
+        for act, actargs in actions:
+            if self.actCount(act) > 0:
+                self.statistic['act'][act] += 1
+                if act == "circularbullet":
+                    self.AddCircularBullet2(src.pos)
+                elif act == "superbullet":
+                    if actargs:
+                        self.AddTargetSuperBullet(
+                            src.pos, actargs)
+                    else:
+                        print "Error %s %s %s" % (act, src, actargs)
+                elif act == "hommingbullet":
+                    if actargs:
+                        self.AddHommingBullet(
+                            src.pos,
+                            actargs,
+                            expireFn=self.effectObjs.addSpriteExplosionEffect
+                        )
+                    else:
+                        print "Error %s %s %s" % (act, src, actargs)
+                elif act == "bullet":
+                    if actargs:
+                        self.AddTargetFiredBullet(src.pos, actargs)
+                    else:
+                        print "Error %s %s %s" % (act, src, actargs)
+                elif act == "accel":
+                    if actargs:
+                        src.setAccelVector(actargs)
+                        self.statistic['hitto'][act] += abs(actargs)
+                    else:
+                        print "Error %s %s %s" % (act, src, actargs)
+                else:
+                    pass
+                src.fireTimeDict[act] = self.thistick
+            else:
+                if act != 'doNothing':
+                    print "%s action %s overuse fail" % (self.teamname, act)
+
     # 최대 사용 가능 action 제한
 
     def actCount(self, act):
@@ -1358,7 +1361,8 @@ def runService():
     # more thread for each request
     server_thread = threading.Thread(target=server.serve_forever)
     # Exit the server thread when the main thread terminates
-    server_thread.daemon = True
+    #server_thread.daemon = True
+    server_thread.daemon = False
     server_thread.start()
 
     def sigstophandler(signum, frame):
