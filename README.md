@@ -31,5 +31,15 @@ wxgame2server.py, wxgame2client.py
 - C/S communication using file/pickle 
 
 
+update 2014-03-07
+----------------
+
+wxgame2server.py, wxgame2client.py
+
+- code refactoring 
+- full tcp networked client/server 
+- data packet changed to json
+- AI client base work ( in progress )
+- team score print
 
 

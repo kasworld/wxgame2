@@ -12,18 +12,10 @@
     문제점은 frame간에 지나가 버린 경우 이동 루트상으론 collision 이 일어나야 하지만 검출 불가.
 """
 
-Version = '2.0.0'
+Version = '2.1.0'
 
-import sys
-import os.path
-import os
-import time
-import math
 import random
-import itertools
-import pprint
 import zlib
-import cPickle as pickle
 import traceback
 try:
     import simplejson as json
@@ -51,10 +43,11 @@ class BackGroundSplite(SpriteLogic):
     display dc, move, change image
     """
 
-    def __init__(self, kwds):
-        SpriteLogic.__init__(self, kwds)
+    def initialize(self, kwds):
+        SpriteLogic.initialize(self, kwds)
         if self.memorydc and not self.dcsize:
             self.dcsize = self.memorydc.GetSizeTuple()
+        return self
 
     def DrawFill_Both(self, pdc, clientsize):
         for x in range(int(self.pos.x) - self.dcsize[0], clientsize.x, self.dcsize[0]):
@@ -138,14 +131,15 @@ class ShootingGameObject(SpriteLogic):
     display and shape
     """
 
-    def __init__(self, kwds):
+    def initialize(self, args):
+        SpriteLogic.initialize(self, args)
         argsdict = {
             "shapefn": ShootingGameObject.ShapeChange_None,
             "shapefnargs": {
                 'radiusSpeed': 0,
                 "pen": None,
                 "brush": None,
-                "memorydcs": [],
+                "memorydcs": None,
                 "dcsize": None,
                 "startimagenumber": 0,
                 "animationfps": 10,
@@ -153,20 +147,25 @@ class ShootingGameObject(SpriteLogic):
             "afterremovefn": None,
             "afterremovefnarg": (),
         }
-        self.loadArgs(argsdict)
-        SpriteLogic.__init__(self, kwds)
+        self.updateObj(argsdict)
 
         self.baseCollisionCricle = self.collisionCricle
-        self.shapefnargs['memorydcs'] = self.shapefnargs.get('memorydcs', None)
-        if self.shapefnargs['memorydcs'] and not self.shapefnargs.get('dcsize', None):
-            self.shapefnargs['dcsize'] = self.shapefnargs[
-                'memorydcs'][0].GetSizeTuple()
+        self.registerAutoMoveFn(self.shapefn, [])
+        self.registerAutoMoveFn(ShootingGameObject.changeImage, [])
+        self.loadResource(self.shapefnargs.get('memorydcs'))
+        return self
+
+    def loadResource(self, rcs):
+        if rcs is None:
+            return
+        self.shapefnargs['memorydcs'] = rcs
+        self.shapefnargs['dcsize'] = self.shapefnargs[
+            'memorydcs'][0].GetSizeTuple()
         self.currentimagenumber = self.shapefnargs['startimagenumber']
         self.shapefnargs['animationfps'] = self.shapefnargs.get(
             'animationfps', 10)
 
-        self.registerAutoMoveFn(self.shapefn, [])
-        self.registerAutoMoveFn(ShootingGameObject.changeImage, [])
+        return self
 
     def ShapeChange_None(self, args):
         pass
@@ -244,10 +243,11 @@ class GameObjectDisplayGroup(GameObjectGroup):
         }
         self.resoueceReady = True
 
-    def __init__(self, *args, **kwds):
+    def initialize(self, *args, **kwds):
+        GameObjectGroup.initialize(self, *args, **kwds)
         self.resoueceReady = False
-        GameObjectGroup.__init__(self, *args, **kwds)
         self.loadResource()
+        return self
 
     def DrawToWxDC(self, pdc):
         clientsize = pdc.GetSize()
@@ -282,10 +282,7 @@ def getData():
         receivedata = recvData(sock, struct.calcsize('!I'), receivedata)
 
         bodylen = headerStruct.unpack(receivedata)[0]
-        # print len(receivedata), bodylen
         bodydata = recvData(sock, bodylen, bodydata)
-    except:
-        print traceback.format_exc()
     finally:
         sock.close()
     return bodydata
@@ -304,16 +301,16 @@ class ShootingGameControl(wx.Control, FPSlogic):
         self.SetBackgroundColour(wx.Colour(0x0, 0x0, 0x0))
 
         self.dispgroup = {}
-        self.dispgroup['backgroup'] = GameObjectDisplayGroup()
+        self.dispgroup['backgroup'] = GameObjectDisplayGroup().initialize()
         self.dispgroup['backgroup'].append(
             self.makeBkObj()
         )
         self.dispgroup['objplayers'] = []
-        self.dispgroup['effectObjs'] = GameObjectDisplayGroup()
-        self.dispgroup['frontgroup'] = GameObjectDisplayGroup()
+        self.dispgroup['effectObjs'] = GameObjectDisplayGroup().initialize()
+        self.dispgroup['frontgroup'] = GameObjectDisplayGroup().initialize()
 
     def makeBkObj(self):
-        return BackGroundSplite(dict(
+        return BackGroundSplite().initialize(dict(
             objtype="background",
             movevector=Vector2.rect(100.0, random2pi()),
             memorydc=g_rcs.loadBitmap2MemoryDCArray("background.gif")[0],
@@ -354,39 +351,44 @@ class ShootingGameControl(wx.Control, FPSlogic):
             for bb in self.dispgroup['objplayers']:
                 if aa.teamname != bb.teamname:
                     targets.append(bb)
-            aa.FireAndAutoMoveByTime(targets, frameinfo[
-                                     'ThisFPS'], self.thistick)
+            aa.FireAndAutoMoveByTime(
+                targets,
+                frameinfo['ThisFPS'],
+                self.thistick
+            )
 
     def applyState(self, loadlist):
         self.dispgroup['objplayers'] = []
         for og in loadlist:
-            gog = GameObjectDisplayGroup(resource=og['resource'])
-            for objid, objtype, objpos, objmovevector in og['objs']:
-                if objtype in gog.rcsdict:
-                    rcs = gog.rcsdict[objtype]
-                    if objtype in ['bounceball', 'supershield']:
-                        rcs = random.choice(rcs)
-
-                    o = ShootingGameObject(dict(
-                        objtype=objtype,
-                        pos=Vector2(*objpos),
-                        movevector=Vector2(*objmovevector),
-                        group=gog,
-                        shapefn=ShootingGameObject.ShapeChange_None,
-                        shapefnargs={
-                            'memorydcs': rcs
-                        },
-                    ))
-                    gog.append(o)
+            gog = GameObjectDisplayGroup(
+            ).initialize(
+                resource=og['resource']
+            ).deserialize(
+                og,
+                ShootingGameObject,
+                dict(
+                    shapefn=ShootingGameObject.ShapeChange_None,
+                )
+            )
+            for o in gog:
+                rcs = gog.rcsdict[o.objtype]
+                if o.objtype in ['bounceball', 'supershield']:
+                    rcs = random.choice(rcs)
+                o.loadResource(rcs)
             self.dispgroup['objplayers'].append(gog)
+        return
 
     def loadState(self):
         try:
             recvdata = getData()
+        except:
+            # print traceback.format_exc()
+            print 'server not ready'
+            return
+        try:
             loadlist = json.loads(zlib.decompress(recvdata))
             self.applyState(loadlist)
         except:
-            print 'state load fail'
             print traceback.format_exc()
             return
 
@@ -410,7 +412,7 @@ class ShootingGameControl(wx.Control, FPSlogic):
         self.loadState()
 
         # AI move
-        #self.doFireAndAutoMoveByTime(frameinfo)
+        # self.doFireAndAutoMoveByTime(frameinfo)
 
         self.Refresh(False)
 

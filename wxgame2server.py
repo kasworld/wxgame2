@@ -14,15 +14,13 @@ collision은 원형: 현재 프레임의 위치만을 기준으로 검출한다.
 문제점은 frame간에 지나가 버린 경우 이동 루트상으론 collision 이 일어나야 하지만 검출 불가.
 """
 
-Version = '2.0.0'
+Version = '2.1.0'
 
-import os.path
 import time
 import math
 import random
 import itertools
 import pprint
-import cPickle as pickle
 import zlib
 import copy
 try:
@@ -73,18 +71,28 @@ class SpriteObj(FastStorage):
         'thistick': 0,
     }
 
-    def __init__(self, params={}):
+    def __init__(self):
+        """ create obj
+        """
         FastStorage.__init__(self)
-        self.update(copy.deepcopy(self.validFields))
 
+        # initailize default field, value
+        self.update(copy.deepcopy(self.validFields))
         self.ID = getSerial()
         self.createdTime = getFrameTime()
         self.lastAutoMoveTick = self.createdTime
-        if params.get('objtype') in SpriteLogic.typeDefaultDict:
-            self.loadArgs(SpriteObj.typeDefaultDict[params.get('objtype')])
-        self.loadArgs(params)
 
-    def loadArgs(self, params):
+    def loadDefaultByType(self, objtype):
+        """ load default by type
+        """
+        self.updateObj(
+            SpriteObj.typeDefaultDict.get(objtype, {})
+        )
+        return self
+
+    def updateObj(self, params):
+        """ update obj
+        """
         for k, v in params.iteritems():
             if k in ['movefnargs', 'shapefnargs']:
                 self.setdefault(k, {}).update(v)
@@ -113,14 +121,17 @@ class SpriteLogic(SpriteObj):
     movefn, move, check wall 순으로 일어남.
     """
 
-    def __init__(self, params):
-        SpriteObj.__init__(self, params)
+    def initialize(self, params={}):
+        self.loadDefaultByType(params.get('objtype'))
+        self.updateObj(params)
+
         #self.autoMoveFns = []
         self.registerAutoMoveFn(self.movefn, [])
         self.registerAutoMoveFn(SpriteLogic.Move_byMoveVector, [])
         self.registerAutoMoveFn(self.wallactionfn, [])
 
         # pprint.pprint(self)
+        return self
 
     def registerAutoMoveFn(self, fn, args=[]):
         if fn is not None:
@@ -490,7 +501,7 @@ class GameObjectGroup(list):
         }
 
     # 표준 interface들 .
-    def __init__(self, *args, **kwds):
+    def initialize(self, *args, **kwds):
         defaultdict = {
             "enableshield": True,
             "actratedict": {
@@ -509,9 +520,9 @@ class GameObjectGroup(list):
         }
         self.setAttrs(defaultdict, kwds)
 
-        list.__init__(self, *args, **kwds)
         self.ID = getSerial()
         self.initStat()
+        return self
 
     def makeMember(self):
         while len(self) < self.membercount or self[self.membercount - 1].objtype != "bounceball":
@@ -534,7 +545,7 @@ class GameObjectGroup(list):
 
     # 이후는 SpriteLogic를 편하게 생성하기위한 factory functions
     def AddBouncBall(self, newpos):
-        o = SpriteLogic(dict(
+        o = SpriteLogic().initialize(dict(
             objtype='bounceball',
             pos=newpos,
             group=self,
@@ -543,7 +554,7 @@ class GameObjectGroup(list):
         return o
 
     def AddShield(self, target, diffvector, anglespeed):
-        o = SpriteLogic(dict(
+        o = SpriteLogic().initialize(dict(
             pos=target.pos + diffvector,
             movefnargs={
                 "targetobj": target,
@@ -558,7 +569,7 @@ class GameObjectGroup(list):
 
     def AddCircularBullet2(self, centerpos):
         for a in range(0, 360, 5):
-            o = SpriteLogic(dict(
+            o = SpriteLogic().initialize(dict(
                 pos=centerpos + Vector2.rect(0.03, math.radians(a)),
                 movevector=Vector2.rect(1, math.radians(a)),
                 objtype="circularbullet",
@@ -568,7 +579,7 @@ class GameObjectGroup(list):
         return self
 
     def AddTargetFiredBullet(self, startpos, tagetpos):
-        o = SpriteLogic(dict(
+        o = SpriteLogic().initialize(dict(
             pos=startpos.copy(),
             movevector=Vector2.rect(1, (tagetpos - startpos).phase()),
             objtype="bullet",
@@ -578,7 +589,7 @@ class GameObjectGroup(list):
         return self
 
     def AddHommingBullet(self, startpos, target, expireFn=None):
-        o = SpriteLogic(dict(
+        o = SpriteLogic().initialize(dict(
             expireFn=expireFn,
             pos=startpos.copy(),
             movevector=Vector2.rect(1, Vector2.phase(target.pos - startpos)),
@@ -593,7 +604,7 @@ class GameObjectGroup(list):
         return self
 
     def AddTargetSuperBullet(self, startpos, tagetpos):
-        o = SpriteLogic(dict(
+        o = SpriteLogic().initialize(dict(
             pos=startpos.copy(),
             movevector=Vector2.rect(1, Vector2.phase(tagetpos - startpos)),
             objtype="superbullet",
@@ -604,7 +615,7 @@ class GameObjectGroup(list):
 
     def AddSuperShield(self, target, expireFn):
         diffvector = Vector2(0.06, 0).addAngle(random2pi())
-        o = SpriteLogic(dict(
+        o = SpriteLogic().initialize(dict(
             expireFn=expireFn,
             pos=target.pos + diffvector,
             movefnargs={
@@ -620,7 +631,7 @@ class GameObjectGroup(list):
 
     def addSpriteExplosionEffect(self, src):
         self.append(
-            SpriteLogic(dict(
+            SpriteLogic().initialize(dict(
                 pos=src.pos,
                 movevector=src.movevector / 4,
                 afterremovefn=None,
@@ -630,7 +641,7 @@ class GameObjectGroup(list):
 
     def addBallExplosionEffect(self, effectObjs, g1, b):
         self.append(
-            SpriteLogic(dict(
+            SpriteLogic().initialize(dict(
                 pos=b.pos,
                 movevector=b.movevector / 4,
                 afterremovefn=self.addSpawnEffect,
@@ -641,7 +652,7 @@ class GameObjectGroup(list):
     def addSpawnEffect(self, effectObjs, g1):
         newpos = Vector2(random.random(), random.random())
         self.append(
-            SpriteLogic(dict(
+            SpriteLogic().initialize(dict(
                 pos=newpos,
                 afterremovefn=g1.addMember,
                 afterremovefnarg=(newpos,),
@@ -823,6 +834,35 @@ class GameObjectGroup(list):
     def selectRandomBall(self, aimingtargetlist):
         targetobjs = self.getAllBounceBalls(aimingtargetlist)
         return random.choice(targetobjs) if targetobjs else None
+
+    def serialize(self):
+        rtn = {
+            'id': self.ID,
+            'teamname': self.teamname,
+            'resource': self.resource,
+            'objs': []
+        }
+        for o in self:
+            rtn['objs'].append(
+                (o.ID, o.objtype, (o.pos.x, o.pos.y),
+                 (o.movevector.x, o.movevector.y))
+            )
+        return rtn
+
+    def deserialize(self, jsondict, objclass, classargsdict):
+        self.ID = jsondict['id']
+        self.teamname = jsondict['teamname']
+        self.resource = jsondict['resource']
+        for objid, objtype, objpos, objmovevector in jsondict['objs']:
+            argsdict = dict(
+                objtype=objtype,
+                pos=Vector2(*objpos),
+                movevector=Vector2(*objmovevector),
+                group=self
+            )
+            argsdict.update(classargsdict)
+            self.append(objclass().initialize(argsdict))
+        return self
 
     # 실제 각 AI 별로 다르게 만들어야 하는 함수
     def SelectAction(self, aimingtargetlist, src):
@@ -1058,7 +1098,7 @@ class ShootingGameControl(FPSlogicBase):
             selpos = d.get('resource', -1)
             if selpos >= 0 and selpos < len(randteam):
                 sel = randteam[selpos]
-                o = d["AIClass"](
+                o = d["AIClass"]().initialize(
                     resource=sel["resource"],
                     teamcolor=sel["color"],
                     teamname=d["teamname"],
@@ -1076,9 +1116,9 @@ class ShootingGameControl(FPSlogicBase):
         self.FPSTimerInit(getFrameTime, 70)
 
         self.dispgroup = {}
-        self.dispgroup['backgroup'] = GameObjectGroup()
-        self.dispgroup['effectObjs'] = GameObjectGroup()
-        self.dispgroup['frontgroup'] = GameObjectGroup()
+        self.dispgroup['backgroup'] = GameObjectGroup().initialize()
+        self.dispgroup['effectObjs'] = GameObjectGroup().initialize()
+        self.dispgroup['frontgroup'] = GameObjectGroup().initialize()
         self.dispgroup['objplayers'] = self.makeTeam()
 
         nowstart = getFrameTime()
@@ -1239,33 +1279,10 @@ class ShootingGameControl(FPSlogicBase):
     def makeState(self):
         savelist = []
         for og in self.dispgroup['objplayers']:
-            cog = {
-                'id': og.ID,
-                'teamname': og.teamname,
-                'resource': og.resource,
-                'objs': []
-            }
-            savelist.append(cog)
-            for o in og:
-                cog['objs'].append(
-                    (o.ID, o.objtype, (o.pos.x, o.pos.y),
-                     (o.movevector.x, o.movevector.y))
-                )
+            savelist.append(og.serialize())
 
         og = self.dispgroup['effectObjs']
-        cog = {
-            'id': og.ID,
-            'teamname': og.teamname,
-            'resource': og.resource,
-            'objs': []
-        }
-        savelist.append(cog)
-        for o in og:
-                cog['objs'].append(
-                    (o.ID, o.objtype, (o.pos.x, o.pos.y),
-                     (o.movevector.x, o.movevector.y))
-                )
-
+        savelist.append(og.serialize())
         return savelist
 
     def saveState(self):
@@ -1277,11 +1294,6 @@ class ShootingGameControl(FPSlogicBase):
 
     def doFPSlogic(self, frameinfo):
         self.thistick = frameinfo['thistime']
-
-        # bb = ["%s:%s" % aa for aa in frameinfo.items()]
-        # a = [len(b) for b in self.dispgroup]
-        # titlestr = "Frame:%s obj:%s " % (bb, a)
-        # self.GetParent().SetTitle(titlestr)
 
         self.frameinfo = frameinfo
         self.frameinfo['objcount'] = sum(
@@ -1313,9 +1325,25 @@ class ShootingGameControl(FPSlogicBase):
             print 'cmps:', self.statCmpN
             print 'packetlen:', self.statPacketL
             print 'fps:', self.frameinfo['stat']
-            # pprint.pprint(senddata)
+            self.diaplayScore()
 
         return ''
+
+    def diaplayScore(self):
+        print "{:8} {:8} {:>8} {:>8} {:>8}".format(
+            'teamname', 'color', 'AI type', 'member', 'score'
+        )
+        sortedinfo = sorted(
+            self.dispgroup['objplayers'], key=lambda x: -x.statistic['teamscore'])
+
+        for j in sortedinfo:
+            print "{:8} {:8} {:>8} {:8} {:8.4f}".format(
+                j.teamname,
+                j.resource,
+                j.__class__.__name__,
+                j.membercount,
+                j.statistic['teamscore'],
+            )
 
 
 def doGame():
@@ -1344,6 +1372,7 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
 
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
+    allow_reuse_address = True
     pass
 
 
@@ -1361,13 +1390,14 @@ def runService():
     # more thread for each request
     server_thread = threading.Thread(target=server.serve_forever)
     # Exit the server thread when the main thread terminates
-    #server_thread.daemon = True
-    server_thread.daemon = False
+    server_thread.daemon = True
+    #server_thread.daemon = False
     server_thread.start()
 
     def sigstophandler(signum, frame):
         print 'User Termination'
         server.shutdown()
+        server_thread.join(1)
         sys.exit(0)
     signal.signal(signal.SIGINT, sigstophandler)
 
