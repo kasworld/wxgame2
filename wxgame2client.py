@@ -31,91 +31,11 @@ import wx.grid
 import wx.lib.colourdb
 
 from euclid import Vector2
-from wxgame2server import SpriteLogic, GameObjectGroup, random2pi, FPSlogicBase, getFrameTime
+from wxgame2server import SpriteObj, GameObjectGroup, random2pi, FPSlogicBase, getFrameTime
 
 # ======== game lib ============
 
-srcdir = os.path.dirname(os.path.abspath(sys.argv[0]))
 wx.InitAllImageHandlers()
-
-# wx specific
-
-
-def loadBitmap2MemoryDCArray(
-        bitmapfilename,
-        xslicenum=1,
-        yslicenum=1,
-        totalslice=10000,
-        yfirst=True,
-        reverse=False,
-        addreverse=False):
-    rtn = []
-    fullbitmap = wx.Bitmap(bitmapfilename)
-    dcsize = fullbitmap.GetSize()
-    w, h = dcsize[0] / xslicenum, dcsize[1] / yslicenum
-    if yfirst:
-        for x in range(xslicenum):
-            for y in range(yslicenum):
-                rtn.append(wx.MemoryDC(
-                    fullbitmap.GetSubBitmap(wx.Rect(x * w, y * h, w, h))))
-    else:
-        for y in range(yslicenum):
-            for x in range(xslicenum):
-                rtn.append(wx.MemoryDC(
-                    fullbitmap.GetSubBitmap(wx.Rect(x * w, y * h, w, h))))
-    totalslice = min(xslicenum * yslicenum, totalslice)
-    rtn = rtn[:totalslice]
-    if reverse:
-        rtn.reverse()
-    if addreverse:
-        rrtn = rtn[:]
-        rrtn.reverse()
-        rtn += rrtn
-    return rtn
-
-
-def loadDirfiles2MemoryDCArray(dirname, reverse=False, addreverse=False):
-    rtn = []
-    filenames = sorted(os.listdir(dirname), reverse=reverse)
-    for a in filenames:
-        rtn.append(wx.MemoryDC(wx.Bitmap(dirname + "/" + a)))
-    if addreverse:
-        rrtn = rtn[:]
-        rrtn.reverse()
-        rtn += rrtn
-    return rtn
-
-
-def makeRotatedImage(image, angle):
-    rad = math.radians(-angle)
-    xlen, ylen = image.GetWidth(), image.GetHeight()
-    #offset = wx.Point()
-    # ,wx.Point(xlen,ylen) )
-    rimage = image.Rotate(rad, (xlen / 2, ylen / 2), True)
-    # rimage =  image.Rotate( rad, (0,0) ,True) #,wx.Point() )
-    xnlen, ynlen = rimage.GetWidth(), rimage.GetHeight()
-    rsimage = rimage.Size(
-        (xlen, ylen), (-(xnlen - xlen) / 2, -(ynlen - ylen) / 2))
-    # print angle, xlen , ylen , xnlen , ynlen , rsimage.GetWidth() ,
-    # rsimage.GetHeight()
-    return rsimage
-
-
-def loadBitmap2RotatedMemoryDCArray(imagefilename, rangearg=(0, 360, 10),
-                                    reverse = False, addreverse = False):
-    rtn = []
-    fullimage = wx.Bitmap(imagefilename).ConvertToImage()
-    for a in range(*rangearg):
-        rtn.append(wx.MemoryDC(
-            makeRotatedImage(fullimage, a).ConvertToBitmap()
-        ))
-    if reverse:
-        rtn.reverse()
-    if addreverse:
-        rrtn = rtn[:]
-        rrtn.reverse()
-        rtn += rrtn
-    return rtn
 
 
 class GameResource(object):
@@ -124,32 +44,102 @@ class GameResource(object):
     """
 
     def __init__(self, dirname):
+        self.srcdir = os.path.dirname(os.path.abspath(sys.argv[0]))
         self.resourcedir = dirname
         self.rcsdict = {}
 
     def getcwdfilepath(self, filename):
-        return os.path.join(srcdir, self.resourcedir, filename)
+        return os.path.join(self.srcdir, self.resourcedir, filename)
 
     def loadBitmap2MemoryDCArray(self, name, *args, **kwds):
         key = (name, args, str(kwds))
         if not self.rcsdict.get(key, None):
-            self.rcsdict[key] = loadBitmap2MemoryDCArray(
+            self.rcsdict[key] = GameResource._loadBitmap2MemoryDCArray(
                 self.getcwdfilepath(name), *args, **kwds)
         return self.rcsdict[key]
 
     def loadDirfiles2MemoryDCArray(self, name, *args, **kwds):
         key = (name, args, str(kwds))
         if not self.rcsdict.get(key, None):
-            self.rcsdict[key] = loadDirfiles2MemoryDCArray(
+            self.rcsdict[key] = GameResource._loadDirfiles2MemoryDCArray(
                 self.getcwdfilepath(name), *args, **kwds)
         return self.rcsdict[key]
 
     def loadBitmap2RotatedMemoryDCArray(self, name, *args, **kwds):
         key = (name, args, str(kwds))
         if not self.rcsdict.get(key, None):
-            self.rcsdict[key] = loadBitmap2RotatedMemoryDCArray(
+            self.rcsdict[key] = GameResource._loadBitmap2RotatedMemoryDCArray(
                 self.getcwdfilepath(name), *args, **kwds)
         return self.rcsdict[key]
+
+    @staticmethod
+    def _loadBitmap2MemoryDCArray(bitmapfilename, xslicenum=1, yslicenum=1, totalslice=10000, yfirst=True, reverse=False, addreverse=False):
+        rtn = []
+        fullbitmap = wx.Bitmap(bitmapfilename)
+        dcsize = fullbitmap.GetSize()
+        w, h = dcsize[0] / xslicenum, dcsize[1] / yslicenum
+        if yfirst:
+            for x in range(xslicenum):
+                for y in range(yslicenum):
+                    rtn.append(wx.MemoryDC(
+                        fullbitmap.GetSubBitmap(wx.Rect(x * w, y * h, w, h))))
+        else:
+            for y in range(yslicenum):
+                for x in range(xslicenum):
+                    rtn.append(wx.MemoryDC(
+                        fullbitmap.GetSubBitmap(wx.Rect(x * w, y * h, w, h))))
+        totalslice = min(xslicenum * yslicenum, totalslice)
+        rtn = rtn[:totalslice]
+        if reverse:
+            rtn.reverse()
+        if addreverse:
+            rrtn = rtn[:]
+            rrtn.reverse()
+            rtn += rrtn
+        return rtn
+
+    @staticmethod
+    def _loadDirfiles2MemoryDCArray(dirname, reverse=False, addreverse=False):
+        rtn = []
+        filenames = sorted(os.listdir(dirname), reverse=reverse)
+        for a in filenames:
+            rtn.append(wx.MemoryDC(wx.Bitmap(dirname + "/" + a)))
+        if addreverse:
+            rrtn = rtn[:]
+            rrtn.reverse()
+            rtn += rrtn
+        return rtn
+
+    @staticmethod
+    def makeRotatedImage(image, angle):
+        rad = math.radians(-angle)
+        xlen, ylen = image.GetWidth(), image.GetHeight()
+        #offset = wx.Point()
+        # ,wx.Point(xlen,ylen) )
+        rimage = image.Rotate(rad, (xlen / 2, ylen / 2), True)
+        # rimage =  image.Rotate( rad, (0,0) ,True) #,wx.Point() )
+        xnlen, ynlen = rimage.GetWidth(), rimage.GetHeight()
+        rsimage = rimage.Size(
+            (xlen, ylen), (-(xnlen - xlen) / 2, -(ynlen - ylen) / 2))
+        # print angle, xlen , ylen , xnlen , ynlen , rsimage.GetWidth() ,
+        # rsimage.GetHeight()
+        return rsimage
+
+    @staticmethod
+    def _loadBitmap2RotatedMemoryDCArray(imagefilename, rangearg=(0, 360, 10), reverse = False, addreverse = False):
+        rtn = []
+        fullimage = wx.Bitmap(imagefilename).ConvertToImage()
+        for a in range(*rangearg):
+            rtn.append(wx.MemoryDC(
+                GameResource.makeRotatedImage(fullimage, a).ConvertToBitmap()
+            ))
+        if reverse:
+            rtn.reverse()
+        if addreverse:
+            rrtn = rtn[:]
+            rrtn.reverse()
+            rtn += rrtn
+        return rtn
 
 
 class FPSlogic(FPSlogicBase):
@@ -168,14 +158,14 @@ class FPSlogic(FPSlogicBase):
         self.timer.Stop()
 
 
-# ======== game lib ============
+# ======== game lib end ============
 
 g_rcs = GameResource('resource')
 
 g_frameinfo = {}
 
 
-class BackGroundSplite(SpriteLogic):
+class BackGroundSplite(SpriteObj):
 
     """
     background scroll class
@@ -184,7 +174,7 @@ class BackGroundSplite(SpriteLogic):
     """
 
     def initialize(self, kwds):
-        SpriteLogic.initialize(self, kwds)
+        SpriteObj.initialize(self, kwds)
         if self.memorydc and not self.dcsize:
             self.dcsize = self.memorydc.GetSizeTuple()
         return self
@@ -265,14 +255,14 @@ class BackGroundSplite(SpriteLogic):
         self.drawfillfn(self, pdc, clientsize)
 
 
-class ShootingGameObject(SpriteLogic):
+class ShootingGameObject(SpriteObj):
 
     """
     display and shape
     """
 
     def initialize(self, args):
-        SpriteLogic.initialize(self, args)
+        SpriteObj.initialize(self, args)
         argsdict = {
             "shapefn": ShootingGameObject.ShapeChange_None,
             "shapefnargs": {
@@ -397,7 +387,7 @@ class GameObjectDisplayGroup(GameObjectGroup):
         return self
 
 
-# ================
+# ================ tcp client =========
 
 import socket
 import struct
@@ -426,11 +416,11 @@ def getData():
     finally:
         sock.close()
     return bodydata
-# ================
+
+# ================ tcp client end =========
 
 
-# 주 canvas class 들 wxPython전용.
-class ShootingGameControl(wx.Control, FPSlogic):
+class ShootingGameClient(wx.Control, FPSlogic):
 
     def __init__(self, *args, **kwds):
         wx.Control.__init__(self, *args, **kwds)
@@ -562,7 +552,7 @@ class MyFrame(wx.Frame):
     def __init__(self, *args, **kwds):
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
         wx.Frame.__init__(self, *args, **kwds)
-        self.panel_1 = ShootingGameControl(self, -1, size=(1000, 1000))
+        self.panel_1 = ShootingGameClient(self, -1, size=(1000, 1000))
         self.panel_1.framewindow = self
         self.__set_properties()
         self.__do_layout()

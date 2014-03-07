@@ -13,7 +13,6 @@ collision은 원형: 현재 프레임의 위치만을 기준으로 검출한다.
 모든? action은 frame 간의 시간차에 따라 보정 된다.
 문제점은 frame간에 지나가 버린 경우 이동 루트상으론 collision 이 일어나야 하지만 검출 불가.
 """
-
 Version = '2.1.0'
 
 import time
@@ -27,12 +26,9 @@ try:
     import simplejson as json
 except:
     import json
-
 from euclid import Vector2
 
-
 # ======== game lib ============
-
 getSerial = itertools.count().next
 
 
@@ -91,7 +87,7 @@ class Statistics(object):
         self.datadict['count'] += 1
         self.datadict['sum'] += data
 
-        if self.datadict['last'] != None:
+        if self.datadict['last'] is not None:
             self.datadict['min'] = min(self.datadict['min'], data)
             self.datadict['max'] = max(self.datadict['max'], data)
             self.datadict['avg'] = self.datadict[
@@ -191,7 +187,7 @@ class FPSlogicBase(object):
     def doFPSlogic(self, thisframe):
         pass
 
-# ======== game lib ============
+# ======== game lib end ============
 
 
 class SpriteObj(Storage):
@@ -267,10 +263,6 @@ class SpriteObj(Storage):
     def __hash__(self):
         return self.ID
 
-
-# game에 쓸 object 관련 class 들
-class SpriteLogic(SpriteObj):
-
     """
     moving, bouncing sprite
     모든 move fn은 movevector를 통해서 pos를 바꾼다.
@@ -287,7 +279,7 @@ class SpriteLogic(SpriteObj):
 
         #self.autoMoveFns = []
         self.registerAutoMoveFn(self.movefn, [])
-        self.registerAutoMoveFn(SpriteLogic.Move_byMoveVector, [])
+        self.registerAutoMoveFn(SpriteObj.Move_byMoveVector, [])
         self.registerAutoMoveFn(self.wallactionfn, [])
 
         # pprint.pprint(self)
@@ -400,7 +392,7 @@ class SpriteLogic(SpriteObj):
 
     def WallAction_Stop(self, args):
         if self.CheckWallCollision("Outer"):
-            self.movefn = SpriteLogic.Move_NoAccel
+            self.movefn = SpriteObj.Move_NoAccel
 
     def WallAction_None(self, args):
         pass
@@ -478,10 +470,6 @@ class SpriteLogic(SpriteObj):
         return (self.lentocenter() + 0.5) * factor
         # return factor
 
-    # def __str__(self):
-    # return pprint.pformat([self.objtype, self.pos, self.movevector,
-    # self.movefnargs])
-
     def checkCollisionAppend(self, target, rtnobjs):
         """
         두 object간에 collision(interaction) 하고
@@ -489,136 +477,129 @@ class SpriteLogic(SpriteObj):
         rtnobjs에 append 한다.
         """
         if self.isCollision(target):
-            # if target.objtype in rule[self.objtype]:
-            #     rtnobjs.setdefault(self, set()).add(target)
             if target.objtype in self.collisionTarget:
                 rtnobjs.setdefault(self, set()).add(target)
-
-            # if self.objtype in rule[target.objtype]:
-            #     rtnobjs.setdefault(target, set()).add(self)
             if self.objtype in target.collisionTarget:
                 rtnobjs.setdefault(target, set()).add(self)
 
+    typeDefaultDict = {
+        "circularbullet": {
+            "objtype": 'circularbullet',
+            'secToLifeEnd': 10.0,
+            'movelimit': 0.4,
+            'collisionCricle': 0.004,
+            'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
+            'movefnargs': {"accelvector": Vector2(0, 0)},
+            'movefn': Move_Vector,
+            'wallactionfn': WallAction_Remove,
+        },
+        "superbullet": {
+            "objtype": 'superbullet',
+            'secToLifeEnd': 10.0,
+            'movelimit': 0.6,
+            'collisionCricle': 0.032,
+            'collisionTarget': ['supershield', 'superbullet', 'hommingbullet'],
+            'movefnargs': {"accelvector": Vector2(0, 0)},
+            'movefn': Move_Vector,
+            'wallactionfn': WallAction_Remove,
+        },
+        "hommingbullet": {
+            "objtype": 'hommingbullet',
+            'secToLifeEnd': 10.0,
+            'movelimit': 0.3,
+            'collisionCricle': 0.016,
+            'collisionTarget': ['supershield', 'superbullet', 'hommingbullet'],
+            'movefn': Move_FollowTarget,
+            'movefnargs': {"accelvector": Vector2(0.0, 0.0)},
+            'wallactionfn': WallAction_None,
+        },
+        "bullet": {
+            "objtype": 'bullet',
+            'secToLifeEnd': 10.0,
+            'movelimit': 0.5,
+            'collisionCricle': 0.008,
+            'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
+            'movefnargs': {"accelvector": Vector2(0, 0)},
+            'movefn': Move_Vector,
+            'wallactionfn': WallAction_Remove,
+        },
+        "bounceball": {
+            "objtype": 'bounceball',
+            'secToLifeEnd': -1.0,
+            'movelimit': 0.3,
+            'collisionCricle': 0.016,
+            'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
+            'bounceDamping': 1.0,
+            "level": 1,
+            'pos': Vector2(0.5, 0.5),
+            'movevector': Vector2(0, 0),
+            'movefn': Move_Vector,
+            'wallactionfn': WallAction_Bounce,
+            'movefnargs': {"accelvector": Vector2(0, 0)},
+            'fireTimeDict': {},
+            'shapefnargs': {'animationfps': 30},
+        },
+        "shield": {
+            "objtype": 'shield',
+            'secToLifeEnd': -1.0,
+            'collisionCricle': 0.008,
+            'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
+            'movefn': Move_SyncTarget,
+            'wallactionfn': WallAction_None,
+            'shapefnargs': {'animationfps': 30},
+        },
+        "supershield": {
+            "objtype": 'supershield',
+            'secToLifeEnd': 10.0,
+            'collisionCricle': 0.011,
+            'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
+            'movefn': Move_SyncTarget,
+            'wallactionfn': WallAction_None,
+            'shapefnargs': {'animationfps': 30},
+        },
+        "spriteexplosioneffect": {
+            "objtype": 'spriteexplosioneffect',
+            'secToLifeEnd': .25,
+            'collisionCricle': 0,
+            'collisionTarget': [],
+            'movefn': Move_Vector,
+            'wallactionfn': WallAction_Remove,
+            'movefnargs': {"accelvector": Vector2(0, 0)},
+        },
+        "ballexplosioneffect": {
+            "objtype": 'ballexplosioneffect',
+            'secToLifeEnd': 0.5,
+            'collisionCricle': 0,
+            'collisionTarget': [],
+            'movefn': Move_Vector,
+            'wallactionfn': WallAction_Remove,
+            'movefnargs': {"accelvector": Vector2(0, 0)},
+        },
+        "spawneffect": {
+            "objtype": 'spawneffect',
+            'secToLifeEnd': 0.5,
+            'collisionCricle': 0,
+            'collisionTarget': [],
+            'movevector': Vector2(0, 0),
+            'movefn': Move_Vector,
+            'wallactionfn': WallAction_Remove,
+            'movefnargs': {"accelvector": Vector2(0, 0)},
+        },
+        "background": {
+            "objtype": 'background',
+            'pos': Vector2(500, 500),
+            'secToLifeEnd': -1.0,
+            'collisionCricle': 0,
+            'collisionTarget': [],
+            'movelimit': 100,
+            'movefnargs': {"accelvector": Vector2(1, 0)},
+            'wallactionfn': WallAction_None,
+            'movefn': Move_Vector,
+            'shapefnargs': {'animationfps': 0},
+        },
+    }
 
-SpriteObj.typeDefaultDict = {
-    "circularbullet": {
-        "objtype": 'circularbullet',
-        'secToLifeEnd': 10.0,
-        'movelimit': 0.4,
-        'collisionCricle': 0.004,
-        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-        'movefnargs': {"accelvector": Vector2(0, 0)},
-        'movefn': SpriteLogic.Move_Vector,
-        'wallactionfn': SpriteLogic.WallAction_Remove,
-    },
-    "superbullet": {
-        "objtype": 'superbullet',
-        'secToLifeEnd': 10.0,
-        'movelimit': 0.6,
-        'collisionCricle': 0.032,
-        'collisionTarget': ['supershield', 'superbullet', 'hommingbullet'],
-        'movefnargs': {"accelvector": Vector2(0, 0)},
-        'movefn': SpriteLogic.Move_Vector,
-        'wallactionfn': SpriteLogic.WallAction_Remove,
-    },
-    "hommingbullet": {
-        "objtype": 'hommingbullet',
-        'secToLifeEnd': 10.0,
-        'movelimit': 0.3,
-        'collisionCricle': 0.016,
-        'collisionTarget': ['supershield', 'superbullet', 'hommingbullet'],
-        'movefn': SpriteLogic.Move_FollowTarget,
-        'movefnargs': {"accelvector": Vector2(0.0, 0.0)},
-        'wallactionfn': SpriteLogic.WallAction_None,
-    },
-    "bullet": {
-        "objtype": 'bullet',
-        'secToLifeEnd': 10.0,
-        'movelimit': 0.5,
-        'collisionCricle': 0.008,
-        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-        'movefnargs': {"accelvector": Vector2(0, 0)},
-        'movefn': SpriteLogic.Move_Vector,
-        'wallactionfn': SpriteLogic.WallAction_Remove,
-    },
-    "bounceball": {
-        "objtype": 'bounceball',
-        'secToLifeEnd': -1.0,
-        'movelimit': 0.3,
-        'collisionCricle': 0.016,
-        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-        'bounceDamping': 1.0,
-        "level": 1,
-        'pos': Vector2(0.5, 0.5),
-        'movevector': Vector2(0, 0),
-        'movefn': SpriteLogic.Move_Vector,
-        'wallactionfn': SpriteLogic.WallAction_Bounce,
-        'movefnargs': {"accelvector": Vector2(0, 0)},
-        'fireTimeDict': {},
-        'shapefnargs': {'animationfps': 30},
-    },
-    "shield": {
-        "objtype": 'shield',
-        'secToLifeEnd': -1.0,
-        'collisionCricle': 0.008,
-        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-        'movefn': SpriteLogic.Move_SyncTarget,
-        'wallactionfn': SpriteLogic.WallAction_None,
-        'shapefnargs': {'animationfps': 30},
-    },
-    "supershield": {
-        "objtype": 'supershield',
-        'secToLifeEnd': 10.0,
-        'collisionCricle': 0.011,
-        'collisionTarget': ['bounceball', 'shield', 'supershield', 'bullet', 'circularbullet', 'superbullet', 'hommingbullet'],
-        'movefn': SpriteLogic.Move_SyncTarget,
-        'wallactionfn': SpriteLogic.WallAction_None,
-        'shapefnargs': {'animationfps': 30},
-    },
-    "spriteexplosioneffect": {
-        "objtype": 'spriteexplosioneffect',
-        'secToLifeEnd': .25,
-        'collisionCricle': 0,
-        'collisionTarget': [],
-        'movefn': SpriteLogic.Move_Vector,
-        'wallactionfn': SpriteLogic.WallAction_Remove,
-        'movefnargs': {"accelvector": Vector2(0, 0)},
-    },
-    "ballexplosioneffect": {
-        "objtype": 'ballexplosioneffect',
-        'secToLifeEnd': 0.5,
-        'collisionCricle': 0,
-        'collisionTarget': [],
-        'movefn': SpriteLogic.Move_Vector,
-        'wallactionfn': SpriteLogic.WallAction_Remove,
-        'movefnargs': {"accelvector": Vector2(0, 0)},
-    },
-    "spawneffect": {
-        "objtype": 'spawneffect',
-        'secToLifeEnd': 0.5,
-        'collisionCricle': 0,
-        'collisionTarget': [],
-        'movevector': Vector2(0, 0),
-        'movefn': SpriteLogic.Move_Vector,
-        'wallactionfn': SpriteLogic.WallAction_Remove,
-        'movefnargs': {"accelvector": Vector2(0, 0)},
-    },
-    "background": {
-        "objtype": 'background',
-        'pos': Vector2(500, 500),
-        'secToLifeEnd': -1.0,
-        'collisionCricle': 0,
-        'collisionTarget': [],
-        'movelimit': 100,
-        'movefnargs': {"accelvector": Vector2(1, 0)},
-        'wallactionfn': SpriteLogic.WallAction_None,
-        'movefn': SpriteLogic.Move_Vector,
-        'shapefnargs': {'animationfps': 0},
-    },
-}
 
-
-# game object group 관련 class들
 class GameObjectGroup(list):
 
     """
@@ -703,9 +684,9 @@ class GameObjectGroup(list):
             )
         return target
 
-    # 이후는 SpriteLogic를 편하게 생성하기위한 factory functions
+    # 이후는 SpriteObj를 편하게 생성하기위한 factory functions
     def AddBouncBall(self, newpos):
-        o = SpriteLogic().initialize(dict(
+        o = SpriteObj().initialize(dict(
             objtype='bounceball',
             pos=newpos,
             group=self,
@@ -714,7 +695,7 @@ class GameObjectGroup(list):
         return o
 
     def AddShield(self, target, diffvector, anglespeed):
-        o = SpriteLogic().initialize(dict(
+        o = SpriteObj().initialize(dict(
             pos=target.pos + diffvector,
             movefnargs={
                 "targetobj": target,
@@ -729,7 +710,7 @@ class GameObjectGroup(list):
 
     def AddCircularBullet2(self, centerpos):
         for a in range(0, 360, 5):
-            o = SpriteLogic().initialize(dict(
+            o = SpriteObj().initialize(dict(
                 pos=centerpos + Vector2.rect(0.03, math.radians(a)),
                 movevector=Vector2.rect(1, math.radians(a)),
                 objtype="circularbullet",
@@ -739,7 +720,7 @@ class GameObjectGroup(list):
         return self
 
     def AddTargetFiredBullet(self, startpos, tagetpos):
-        o = SpriteLogic().initialize(dict(
+        o = SpriteObj().initialize(dict(
             pos=startpos.copy(),
             movevector=Vector2.rect(1, (tagetpos - startpos).phase()),
             objtype="bullet",
@@ -749,7 +730,7 @@ class GameObjectGroup(list):
         return self
 
     def AddHommingBullet(self, startpos, target, expireFn=None):
-        o = SpriteLogic().initialize(dict(
+        o = SpriteObj().initialize(dict(
             expireFn=expireFn,
             pos=startpos.copy(),
             movevector=Vector2.rect(1, Vector2.phase(target.pos - startpos)),
@@ -764,7 +745,7 @@ class GameObjectGroup(list):
         return self
 
     def AddTargetSuperBullet(self, startpos, tagetpos):
-        o = SpriteLogic().initialize(dict(
+        o = SpriteObj().initialize(dict(
             pos=startpos.copy(),
             movevector=Vector2.rect(1, Vector2.phase(tagetpos - startpos)),
             objtype="superbullet",
@@ -775,7 +756,7 @@ class GameObjectGroup(list):
 
     def AddSuperShield(self, target, expireFn):
         diffvector = Vector2(0.06, 0).addAngle(random2pi())
-        o = SpriteLogic().initialize(dict(
+        o = SpriteObj().initialize(dict(
             expireFn=expireFn,
             pos=target.pos + diffvector,
             movefnargs={
@@ -791,7 +772,7 @@ class GameObjectGroup(list):
 
     def addSpriteExplosionEffect(self, src):
         self.append(
-            SpriteLogic().initialize(dict(
+            SpriteObj().initialize(dict(
                 pos=src.pos,
                 movevector=src.movevector / 4,
                 afterremovefn=None,
@@ -801,7 +782,7 @@ class GameObjectGroup(list):
 
     def addBallExplosionEffect(self, effectObjs, g1, b):
         self.append(
-            SpriteLogic().initialize(dict(
+            SpriteObj().initialize(dict(
                 pos=b.pos,
                 movevector=b.movevector / 4,
                 afterremovefn=self.addSpawnEffect,
@@ -812,7 +793,7 @@ class GameObjectGroup(list):
     def addSpawnEffect(self, effectObjs, g1):
         newpos = Vector2(random.random(), random.random())
         self.append(
-            SpriteLogic().initialize(dict(
+            SpriteObj().initialize(dict(
                 pos=newpos,
                 afterremovefn=g1.addMember,
                 afterremovefnarg=(newpos,),
@@ -863,6 +844,13 @@ class GameObjectGroup(list):
         return bucketlist
 
     # AI start funcion
+    def makeAimingTargetList(self, objgrouplist):
+        rtn = []
+        for og in objgrouplist:
+            if self.teamname != og.teamname:
+                rtn.append(og)
+        return rtn
+
     def FireAndAutoMoveByTime(self, aimingtargetlist, thisFPS=60, thistick=0):
         self.thistick = thistick
         self.tdur = self.thistick - self.statistic["teamStartTime"]
@@ -1230,7 +1218,7 @@ class AI0Random(GameObjectGroup):
 gameState = ''
 
 
-class ShootingGameControl(FPSlogicBase):
+class ShootingGameServer(FPSlogicBase):
 
     def makeTeam(self):
         randteam = [
@@ -1429,12 +1417,9 @@ class ShootingGameControl(FPSlogicBase):
         selmov = self.dispgroup['objplayers'][:]
         random.shuffle(selmov)
         for aa in selmov:
-            targets = []
-            for bb in self.dispgroup['objplayers']:
-                if aa.teamname != bb.teamname:
-                    targets.append(bb)
-            aa.FireAndAutoMoveByTime(targets, frameinfo[
-                                     'ThisFPS'], self.thistick)
+            targets = aa.makeAimingTargetList(self.dispgroup['objplayers'])
+            aa.FireAndAutoMoveByTime(
+                targets, frameinfo['ThisFPS'], self.thistick)
 
     def makeState(self):
         savelist = []
@@ -1505,14 +1490,12 @@ class ShootingGameControl(FPSlogicBase):
                 j.statistic['teamscore'],
             )
 
+    def doGame(self):
+        while True:
+            self.FPSTimer(0)
+            time.sleep(self.newdur / 1000.)
 
-def doGame():
-    game = ShootingGameControl()
-    while True:
-        game.FPSTimer(0)
-        time.sleep(game.newdur / 1000.)
-
-# ================
+# ================ tcp server ========
 
 import threading
 import SocketServer
@@ -1561,6 +1544,9 @@ def runService():
         sys.exit(0)
     signal.signal(signal.SIGINT, sigstophandler)
 
+# ================ tcp server end =======
+
+
 if __name__ == "__main__":
     runService()
-    doGame()
+    ShootingGameServer().doGame()
