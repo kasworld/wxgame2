@@ -16,7 +16,11 @@ Version = '2.1.0'
 
 import random
 import zlib
+import math
 import traceback
+import os
+import os.path
+import sys
 try:
     import simplejson as json
 except:
@@ -27,8 +31,144 @@ import wx.grid
 import wx.lib.colourdb
 
 from euclid import Vector2
-from wxgame2server import SpriteLogic, GameObjectGroup
-from wxgamelib import *
+from wxgame2server import SpriteLogic, GameObjectGroup, random2pi, FPSlogicBase, getFrameTime
+
+# ======== game lib ============
+
+srcdir = os.path.dirname(os.path.abspath(sys.argv[0]))
+wx.InitAllImageHandlers()
+
+# wx specific
+
+
+def loadBitmap2MemoryDCArray(
+        bitmapfilename,
+        xslicenum=1,
+        yslicenum=1,
+        totalslice=10000,
+        yfirst=True,
+        reverse=False,
+        addreverse=False):
+    rtn = []
+    fullbitmap = wx.Bitmap(bitmapfilename)
+    dcsize = fullbitmap.GetSize()
+    w, h = dcsize[0] / xslicenum, dcsize[1] / yslicenum
+    if yfirst:
+        for x in range(xslicenum):
+            for y in range(yslicenum):
+                rtn.append(wx.MemoryDC(
+                    fullbitmap.GetSubBitmap(wx.Rect(x * w, y * h, w, h))))
+    else:
+        for y in range(yslicenum):
+            for x in range(xslicenum):
+                rtn.append(wx.MemoryDC(
+                    fullbitmap.GetSubBitmap(wx.Rect(x * w, y * h, w, h))))
+    totalslice = min(xslicenum * yslicenum, totalslice)
+    rtn = rtn[:totalslice]
+    if reverse:
+        rtn.reverse()
+    if addreverse:
+        rrtn = rtn[:]
+        rrtn.reverse()
+        rtn += rrtn
+    return rtn
+
+
+def loadDirfiles2MemoryDCArray(dirname, reverse=False, addreverse=False):
+    rtn = []
+    filenames = sorted(os.listdir(dirname), reverse=reverse)
+    for a in filenames:
+        rtn.append(wx.MemoryDC(wx.Bitmap(dirname + "/" + a)))
+    if addreverse:
+        rrtn = rtn[:]
+        rrtn.reverse()
+        rtn += rrtn
+    return rtn
+
+
+def makeRotatedImage(image, angle):
+    rad = math.radians(-angle)
+    xlen, ylen = image.GetWidth(), image.GetHeight()
+    #offset = wx.Point()
+    # ,wx.Point(xlen,ylen) )
+    rimage = image.Rotate(rad, (xlen / 2, ylen / 2), True)
+    # rimage =  image.Rotate( rad, (0,0) ,True) #,wx.Point() )
+    xnlen, ynlen = rimage.GetWidth(), rimage.GetHeight()
+    rsimage = rimage.Size(
+        (xlen, ylen), (-(xnlen - xlen) / 2, -(ynlen - ylen) / 2))
+    # print angle, xlen , ylen , xnlen , ynlen , rsimage.GetWidth() ,
+    # rsimage.GetHeight()
+    return rsimage
+
+
+def loadBitmap2RotatedMemoryDCArray(imagefilename, rangearg=(0, 360, 10),
+                                    reverse = False, addreverse = False):
+    rtn = []
+    fullimage = wx.Bitmap(imagefilename).ConvertToImage()
+    for a in range(*rangearg):
+        rtn.append(wx.MemoryDC(
+            makeRotatedImage(fullimage, a).ConvertToBitmap()
+        ))
+    if reverse:
+        rtn.reverse()
+    if addreverse:
+        rrtn = rtn[:]
+        rrtn.reverse()
+        rtn += rrtn
+    return rtn
+
+
+class GameResource(object):
+
+    """ game resource loading with cache
+    """
+
+    def __init__(self, dirname):
+        self.resourcedir = dirname
+        self.rcsdict = {}
+
+    def getcwdfilepath(self, filename):
+        return os.path.join(srcdir, self.resourcedir, filename)
+
+    def loadBitmap2MemoryDCArray(self, name, *args, **kwds):
+        key = (name, args, str(kwds))
+        if not self.rcsdict.get(key, None):
+            self.rcsdict[key] = loadBitmap2MemoryDCArray(
+                self.getcwdfilepath(name), *args, **kwds)
+        return self.rcsdict[key]
+
+    def loadDirfiles2MemoryDCArray(self, name, *args, **kwds):
+        key = (name, args, str(kwds))
+        if not self.rcsdict.get(key, None):
+            self.rcsdict[key] = loadDirfiles2MemoryDCArray(
+                self.getcwdfilepath(name), *args, **kwds)
+        return self.rcsdict[key]
+
+    def loadBitmap2RotatedMemoryDCArray(self, name, *args, **kwds):
+        key = (name, args, str(kwds))
+        if not self.rcsdict.get(key, None):
+            self.rcsdict[key] = loadBitmap2RotatedMemoryDCArray(
+                self.getcwdfilepath(name), *args, **kwds)
+        return self.rcsdict[key]
+
+
+class FPSlogic(FPSlogicBase):
+
+    def FPSTimerInit(self, frameTime, maxFPS=70):
+        FPSlogicBase.FPSTimerInit(self, frameTime, maxFPS)
+        self.Bind(wx.EVT_TIMER, self.FPSTimer)
+        self.timer = wx.Timer(self)
+        self.timer.Start(1000 / self.maxFPS, oneShot=True)
+
+    def FPSTimer(self, evt):
+        FPSlogicBase.FPSTimer(self, evt)
+        self.timer.Start(self.newdur, oneShot=True)
+
+    def FPSTimerDel(self):
+        self.timer.Stop()
+
+
+# ======== game lib ============
 
 g_rcs = GameResource('resource')
 

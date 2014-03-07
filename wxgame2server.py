@@ -28,13 +28,173 @@ try:
 except:
     import json
 
-
 from euclid import Vector2
 
-from wxgamelib import getSerial, random2pi, Statistics, FastStorage, FPSlogicBase, getFrameTime
+
+# ======== game lib ============
+
+getSerial = itertools.count().next
 
 
-class SpriteObj(FastStorage):
+def getFrameTime():
+    return time.time()
+
+
+def random2pi(m=2):
+    return math.pi * m * (random.random() - 0.5)
+
+
+class Storage(dict):
+
+    """from gluon storage.py """
+    __slots__ = ()
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+    __getitem__ = dict.get
+    __getattr__ = dict.get
+    __repr__ = lambda self: '<Storage %s>' % dict.__repr__(self)
+    # http://stackoverflow.com/questions/5247250/why-does-pickle-getstate-accept-as-a-return-value-the-very-instance-it-requi
+    __getstate__ = lambda self: None
+    __copy__ = lambda self: Storage(self)
+
+    def getlist(self, key):
+        value = self.get(key, [])
+        if value is None or isinstance(value, (list, tuple)):
+            return value
+        else:
+            return [value]
+
+    def getfirst(self, key, default=None):
+        values = self.getlist(key)
+        return values[0] if values else default
+
+    def getlast(self, key, default=None):
+        values = self.getlist(key)
+        return values[-1] if values else default
+
+
+class Statistics(object):
+
+    def __init__(self):
+        self.datadict = {
+            'min': None,
+            'max': None,
+            'avg': None,
+            'sum': 0,
+            'last': None,
+            'count': 0,
+        }
+        self.formatstr = '%(last)s(%(min)s~%(max)s), %(avg)s=%(sum)s/%(count)d'
+
+    def update(self, data):
+        data = float(data)
+        self.datadict['count'] += 1
+        self.datadict['sum'] += data
+
+        if self.datadict['last'] != None:
+            self.datadict['min'] = min(self.datadict['min'], data)
+            self.datadict['max'] = max(self.datadict['max'], data)
+            self.datadict['avg'] = self.datadict[
+                'sum'] / self.datadict['count']
+        else:
+            self.datadict['min'] = data
+            self.datadict['max'] = data
+            self.datadict['avg'] = data
+            self.formatstr = '%(last).2f(%(min).2f~%(max).2f), %(avg).2f=%(sum).2f/%(count)d'
+
+        self.datadict['last'] = data
+
+        return self
+
+    def getStat(self):
+        return self.datadict
+
+    def __str__(self):
+        return self.formatstr % self.datadict
+
+
+class FPSlogicBase(object):
+
+    def FPSTimerInit(self, frameTime, maxFPS=70, ):
+        self.maxFPS = maxFPS
+        self.repeatingcalldict = {}
+        self.pause = False
+        self.statFPS = Statistics()
+        self.frameTime = frameTime
+        self.frames = [self.frameTime()]
+        self.first = True
+        self.frameCount = 0
+
+    def registerRepeatFn(self, fn, dursec):
+        """
+            function signature
+            def repeatFn(self,repeatinfo):
+            repeatinfo is {
+            "dursec" : dursec ,
+            "oldtime" : time.time() ,
+            "starttime" : time.time(),
+            "repeatcount":0 }
+        """
+        self.repeatingcalldict[fn] = {
+            "dursec": dursec,
+            "oldtime": self.frameTime(),
+            "starttime": self.frameTime(),
+            "repeatcount": 0}
+        return self
+
+    def unRegisterRepeatFn(self, fn):
+        return self.repeatingcalldict.pop(fn, [])
+
+    def FPSTimer(self, evt):
+        self.frameCount += 1
+
+        thistime = self.frameTime()
+        self.frames.append(thistime)
+        difftime = self.frames[-1] - self.frames[-2]
+
+        while(self.frames[-1] - self.frames[0] > 1):
+            del self.frames[0]
+
+        if len(self.frames) > 1:
+            fps = len(self.frames) / (self.frames[-1] - self.frames[0])
+        else:
+            fps = 0
+        if self.first:
+            self.first = False
+        else:
+            self.statFPS.update(fps)
+
+        frameinfo = {
+            "ThisFPS": 1 / difftime,
+            "sec": difftime,
+            "FPS": fps,
+            'stat': self.statFPS,
+            'thistime': thistime,
+            'frameCount': self.frameCount
+        }
+
+        if not self.pause:
+            self.doFPSlogic(frameinfo)
+
+        for fn, d in self.repeatingcalldict.iteritems():
+            if thistime - d["oldtime"] > d["dursec"]:
+                self.repeatingcalldict[fn]["oldtime"] = thistime
+                self.repeatingcalldict[fn]["repeatcount"] += 1
+                fn(d)
+
+        nexttime = (self.frameTime() - thistime) * 1000
+        newdur = min(1000, max(difftime * 800, 1000 / self.maxFPS) - nexttime)
+        if newdur < 1:
+            newdur = 1
+        self.newdur = newdur
+
+    def doFPSlogic(self, thisframe):
+        pass
+
+# ======== game lib ============
+
+
+class SpriteObj(Storage):
     validFields = {
         'ID': 0,
         "enabled": True,
@@ -74,7 +234,7 @@ class SpriteObj(FastStorage):
     def __init__(self):
         """ create obj
         """
-        FastStorage.__init__(self)
+        Storage.__init__(self)
 
         # initailize default field, value
         self.update(copy.deepcopy(self.validFields))
@@ -1092,7 +1252,7 @@ class ShootingGameControl(FPSlogicBase):
             {"AIClass": AI2, "teamname": 'team5', 'resource': 5},
             {"AIClass": AI2, "teamname": 'team6', 'resource': 6},
             {"AIClass": AI2, "teamname": 'team7', 'resource': 7},
-        ] * 1
+        ] * 2
         teamobjs = []
         for sel, d in zip(itertools.cycle(randteam), teams):
             selpos = d.get('resource', -1)
