@@ -25,17 +25,20 @@ try:
     import simplejson as json
 except:
     import json
-
+import socket
+import struct
+import signal
+import threading
+import Queue
+import time
 import wx
 import wx.grid
 import wx.lib.colourdb
 
 from euclid import Vector2
-from wxgame2server import SpriteObj, GameObjectGroup, random2pi, FPSlogicBase, getFrameTime
+from wxgame2server import SpriteObj, GameObjectGroup, random2pi, FPSlogicBase, getFrameTime, I32Packet
 
 # ======== game lib ============
-
-wx.InitAllImageHandlers()
 
 
 class GameResource(object):
@@ -44,6 +47,7 @@ class GameResource(object):
     """
 
     def __init__(self, dirname):
+        wx.InitAllImageHandlers()
         self.srcdir = os.path.dirname(os.path.abspath(sys.argv[0]))
         self.resourcedir = dirname
         self.rcsdict = {}
@@ -389,33 +393,44 @@ class GameObjectDisplayGroup(GameObjectGroup):
 
 # ================ tcp client =========
 
-import socket
-import struct
-headerStruct = struct.Struct('!I')
+class TCPGameClient(threading.Thread):
+
+    def __init__(self, connectTo, queues):
+        self.stateQueue, self.cmdQueue = queues
+        self.quit = False
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(connectTo)
+        self.protocol = I32Packet(sock)
+
+    def run(self):
+        try:
+            while self.quit is not True:
+                self.stateQueue.put(self.protocol.recvPacket())
+                cmd = self.cmdQueue.get()
+                if cmd == 'QUIT':
+                    break
+                self.protocol.sendPacket(cmd)
+        except:
+            pass
+        self.protocol.socket.close()
+
+    def shutdown(self):
+        self.protocol.finish()
+        self.quit = True
 
 
-def recvData(sock, toreceivelen, receivedata):
-    while len(receivedata) < toreceivelen:
-        # print len(receivedata), toreceivelen
-        receivedata += sock.recv(toreceivelen - len(receivedata))
-    return receivedata
+def runService(connectTo, queues):
+    client = TCPGameClient(connectTo, queues)
 
+    client_thread = threading.Thread(target=client.run)
+    client_thread.start()
 
-def getData():
-    HOST, PORT = "localhost", 22517
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((HOST, PORT))
-    bodydata = ''
-    try:
-        receivedata = ''
-        receivedata = recvData(sock, struct.calcsize('!I'), receivedata)
-
-        bodylen = headerStruct.unpack(receivedata)[0]
-        bodydata = recvData(sock, bodylen, bodydata)
-    finally:
-        sock.close()
-    return bodydata
+    def sigstophandler(signum, frame):
+        print 'User Termination'
+        client.shutdown()
+        client_thread.join(1)
+        sys.exit(0)
+    signal.signal(signal.SIGINT, sigstophandler)
 
 # ================ tcp client end =========
 
@@ -423,6 +438,7 @@ def getData():
 class ShootingGameClient(wx.Control, FPSlogic):
 
     def __init__(self, *args, **kwds):
+        self.stateQueue, self.cmdQueue = kwds.pop('queues')
         wx.Control.__init__(self, *args, **kwds)
         self.Bind(wx.EVT_PAINT, self._OnPaint)
         self.Bind(wx.EVT_SIZE, self._OnSize)
@@ -451,6 +467,7 @@ class ShootingGameClient(wx.Control, FPSlogic):
         keycode = evt.GetKeyCode()
         if keycode == wx.WXK_ESCAPE:
             self.framewindow.Close()
+            #self.cmdQueue.put('QUIT')
 
     def _OnSize(self, evt):
         self.clientsize = self.GetClientSize()
@@ -509,17 +526,14 @@ class ShootingGameClient(wx.Control, FPSlogic):
         return
 
     def loadState(self):
-        try:
-            recvdata = getData()
-        except:
-            # print traceback.format_exc()
-            print 'server not ready'
-            return
+        recvdata = self.stateQueue.get()
         try:
             loadlist = json.loads(zlib.decompress(recvdata))
             self.applyState(loadlist)
         except:
-            print traceback.format_exc()
+            # print 'server not ready'
+            print '.',
+            # print traceback.format_exc()
             return
 
     def doFPSlogic(self, frameinfo):
@@ -543,6 +557,9 @@ class ShootingGameClient(wx.Control, FPSlogic):
 
         # AI move
         # self.doFireAndAutoMoveByTime(frameinfo)
+        self.cmdQueue.put('hello world')
+
+        print 'fps:', frameinfo['stat']
 
         self.Refresh(False)
 
@@ -551,8 +568,10 @@ class MyFrame(wx.Frame):
 
     def __init__(self, *args, **kwds):
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
+        queues = kwds.pop('queues')
         wx.Frame.__init__(self, *args, **kwds)
-        self.panel_1 = ShootingGameClient(self, -1, size=(1000, 1000))
+        self.panel_1 = ShootingGameClient(
+            self, -1, size=(1000, 1000), queues = queues)
         self.panel_1.framewindow = self
         self.__set_properties()
         self.__do_layout()
@@ -573,11 +592,21 @@ class MyFrame(wx.Frame):
 
 
 def runtest():
+    (stateQueue, cmdQueue) = Queue.Queue(), Queue.Queue()
+
+    connectTo = "localhost", 22517
+    print 'Client start, ', connectTo
+    runService(connectTo, (stateQueue, cmdQueue))
+
     app = wx.App()
-    frame_1 = MyFrame(None, -1, "", size=(1000, 1000))
+    frame_1 = MyFrame(
+        None, -1, "", size=(1000, 1000),
+        queues= (stateQueue, cmdQueue))
     app.SetTopWindow(frame_1)
     frame_1.Show()
     app.MainLoop()
+    print 'end client'
+    cmdQueue.put('QUIT')
 
 
 if __name__ == "__main__":

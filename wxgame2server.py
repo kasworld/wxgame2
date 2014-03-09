@@ -26,6 +26,12 @@ try:
     import simplejson as json
 except:
     import json
+import sys
+import signal
+import threading
+import SocketServer
+import traceback
+import struct
 from euclid import Vector2
 
 # ======== game lib ============
@@ -1232,10 +1238,10 @@ class ShootingGameServer(FPSlogicBase):
             {"resource": "blue", "color": (0x00, 0xff, 0xff)},
         ]
         teams = [
-            {"AIClass": AI2, "teamname": 'team0', 'resource': 0},
-            {"AIClass": AI2, "teamname": 'team1', 'resource': 1},
-            {"AIClass": AI2, "teamname": 'team2', 'resource': 2},
-            {"AIClass": AI2, "teamname": 'team3', 'resource': 3},
+            # {"AIClass": AI2, "teamname": 'team0', 'resource': 0},
+            # {"AIClass": AI2, "teamname": 'team1', 'resource': 1},
+            # {"AIClass": AI2, "teamname": 'team2', 'resource': 2},
+            # {"AIClass": AI2, "teamname": 'team3', 'resource': 3},
             {"AIClass": AI2, "teamname": 'team4', 'resource': 4},
             {"AIClass": AI2, "teamname": 'team5', 'resource': 5},
             {"AIClass": AI2, "teamname": 'team6', 'resource': 6},
@@ -1465,6 +1471,7 @@ class ShootingGameServer(FPSlogicBase):
         self.statPacketL.update(self.saveState())
 
         # 화면에 표시
+        ischanagestatistic = False
         if ischanagestatistic:
             print 'objs:', self.statObjN
             print 'cmps:', self.statCmpN
@@ -1475,19 +1482,32 @@ class ShootingGameServer(FPSlogicBase):
         return ''
 
     def diaplayScore(self):
+        teamscore = {}
+        for j in self.dispgroup['objplayers']:
+            if j.teamname in teamscore:
+                teamscore[j.teamname]['teamscore'] += j.statistic['teamscore']
+                teamscore[j.teamname]['member'] += j.membercount
+            else:
+                teamscore[j.teamname] = dict(
+                    teamscore=j.statistic['teamscore'],
+                    color=j.resource,
+                    ai=j.__class__.__name__,
+                    member=j.membercount
+                )
+
         print "{:8} {:8} {:>8} {:>8} {:>8}".format(
             'teamname', 'color', 'AI type', 'member', 'score'
         )
         sortedinfo = sorted(
-            self.dispgroup['objplayers'], key=lambda x: -x.statistic['teamscore'])
+            teamscore.keys(), key=lambda x: -teamscore[x]['teamscore'])
 
         for j in sortedinfo:
             print "{:8} {:8} {:>8} {:8} {:8.4f}".format(
-                j.teamname,
-                j.resource,
-                j.__class__.__name__,
-                j.membercount,
-                j.statistic['teamscore'],
+                j,
+                teamscore[j]['color'],
+                teamscore[j]['ai'],
+                teamscore[j]['member'],
+                teamscore[j]['teamscore'],
             )
 
     def doGame(self):
@@ -1497,43 +1517,74 @@ class ShootingGameServer(FPSlogicBase):
 
 # ================ tcp server ========
 
-import threading
-import SocketServer
-import struct
-headerStruct = struct.Struct('!I')
 
+class I32Packet(object):
+    headerStruct = struct.Struct('!I')
+    headerLen = struct.calcsize('!I')
+    def __init__(self, socket):
+        self.socket = socket
+        self.socket.settimeout(0.1)
+        self.quit = False
+
+    def sendPacket(self, data):
+        self.socket.sendall(self.headerStruct.pack(len(data)))
+        self.socket.sendall(data)
+
+    def recvData(self, toreceivelen):
+        rtn = ''
+        while len(rtn) < toreceivelen and self.quit is not True:
+            rtn += self.socket.recv(toreceivelen - len(rtn))
+        return rtn
+
+    def recvPacket(self):
+        try:
+            header = self.recvData(self.headerLen)
+
+            bodylen = self.headerStruct.unpack(header)[0]
+            bodydata = self.recvData(bodylen)
+        except:
+            print traceback.format_exc()
+            return ''
+        return bodydata
+
+    def finish(self):
+        self.quit = True
 
 class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
+    headerStruct = struct.Struct('!I')
+    def setup(self):
+        print 'client connected'
+        self.protocol = I32Packet(self.request)
+        self.quit = False
 
     def handle(self):
-        # data = self.request.recv(1024)
-        # cur_thread = threading.current_thread()
-        # response = "{}: {}".format(cur_thread.name, data)
-        senddata = gameState
-        self.request.sendall(headerStruct.pack(len(senddata)))
-        self.request.sendall(senddata)
+        try:
+            while self.quit is not True:
+                senddata = gameState
+                self.protocol.sendPacket(senddata)
+                clientaction = self.protocol.recvPacket()
+                time.sleep(0)
+        except:
+            print traceback.format_exc()
 
+
+    def finish(self):
+        self.protocol.finish()
+        self.quit = True
+        print 'client disconnected'
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     allow_reuse_address = True
     pass
 
 
-import signal
-import sys
-
-
-def runService():
-    HOST, PORT = "localhost", 22517
-
+def runService(HOST, PORT):
     server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
-    #ip, port = server.server_address
-
     # Start a thread with the server -- that thread will then start one
     # more thread for each request
     server_thread = threading.Thread(target=server.serve_forever)
     # Exit the server thread when the main thread terminates
-    server_thread.daemon = True
+    #server_thread.daemon = True
     #server_thread.daemon = False
     server_thread.start()
 
@@ -1548,5 +1599,7 @@ def runService():
 
 
 if __name__ == "__main__":
-    runService()
+    connectTo = "0.0.0.0", 22517
+    print 'Server start, ', connectTo
+    runService(*connectTo)
     ShootingGameServer().doGame()
