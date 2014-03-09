@@ -31,6 +31,7 @@ import signal
 import threading
 import SocketServer
 import Queue
+import socket
 import traceback
 import struct
 from euclid import Vector2
@@ -1246,13 +1247,6 @@ class ShootingGameServer(FPSlogicBase):
         o.makeMember()
         return o
 
-    def makeTeam(self):
-        teamobjs = []
-        for tn in ['team0', 'team1', 'team2', 'team3', 'team4', 'team5', 'team6', 'team7']:
-            o = self.make1Team(tn)
-            teamobjs.append(o)
-        return teamobjs
-
     def __init__(self, *args, **kwds):
         def setAttr(name, defaultvalue):
             self.__dict__[name] = kwds.pop(name, defaultvalue)
@@ -1266,7 +1260,10 @@ class ShootingGameServer(FPSlogicBase):
         self.dispgroup['backgroup'] = GameObjectGroup().initialize()
         self.dispgroup['effectObjs'] = GameObjectGroup().initialize()
         self.dispgroup['frontgroup'] = GameObjectGroup().initialize()
-        self.dispgroup['objplayers'] = self.makeTeam()
+
+        self.dispgroup['objplayers'] = []
+        # for tn in ['team0', 'team1', 'team2', 'team3', 'team4', 'team5', 'team6', 'team7']:
+        #     self.dispgroup['objplayers'].append(self.make1Team(tn))
 
         self.statObjN = Statistics()
         self.statCmpN = Statistics()
@@ -1430,6 +1427,37 @@ class ShootingGameServer(FPSlogicBase):
         self.clientCommDict['gameState'] = tosenddata
         return len(tosenddata)
 
+    def delTeamByID(self, id):
+        findteam = None
+        for t in self.dispgroup['objplayers']:
+            if t.ID == id:
+                findteam = t
+                break
+        if findteam is not None:
+            self.dispgroup['objplayers'].remove(findteam)
+
+    def processClientCmd(self):
+        for n, v in self.clientCommDict['clients'].iteritems():
+            clientcmd = ''
+            try:
+                clientcmd = v['cmds'].get_nowait()
+            except:
+                continue
+            try:
+                cmdDict = json.loads(clientcmd)
+            except:
+                continue
+            cmd = cmdDict.get('cmd')
+            if cmd == 'make':
+                tn = cmdDict.get('teamname')
+                o = self.make1Team(tn)
+                self.dispgroup['objplayers'].append(o)
+                print tn, 'made', o.ID
+                v['teamid'] = o.ID
+            if cmd == 'del':
+                self.delTeamByID(v['teamid'])
+                self.clientCommDict['clients'][n] = None
+
     def doFPSlogic(self, frameinfo):
         self.thistick = frameinfo['thistime']
 
@@ -1441,11 +1469,7 @@ class ShootingGameServer(FPSlogicBase):
 
         self.doFireAndAutoMoveByTime(frameinfo)
 
-        for n, v in self.clientCommDict['clients'].iteritems():
-            try:
-                clientcmd = v['cmds'].get_nowait()
-            except:
-                pass
+        self.processClientCmd()
 
         # make collision dictionary
         resultdict, self.frameinfo['cmpcount'] = self.makeCollisionDict()
@@ -1515,19 +1539,19 @@ class I32Packet(object):
     headerStruct = struct.Struct('!I')
     headerLen = struct.calcsize('!I')
 
-    def __init__(self, socket):
-        self.socket = socket
-        self.socket.settimeout(0.1)
+    def __init__(self, sock):
+        self.sock = sock
+        self.sock.settimeout(0.1)
         self.quit = False
 
     def sendPacket(self, data):
-        self.socket.sendall(self.headerStruct.pack(len(data)))
-        self.socket.sendall(data)
+        self.sock.sendall(self.headerStruct.pack(len(data)))
+        self.sock.sendall(data)
 
     def recvData(self, toreceivelen):
         rtn = ''
         while len(rtn) < toreceivelen and self.quit is not True:
-            rtn += self.socket.recv(toreceivelen - len(rtn))
+            rtn += self.sock.recv(toreceivelen - len(rtn))
         return rtn
 
     def recvPacket(self):
@@ -1536,8 +1560,8 @@ class I32Packet(object):
 
             bodylen = self.headerStruct.unpack(header)[0]
             bodydata = self.recvData(bodylen)
-        except:
-            print traceback.format_exc()
+        except socket.error as msg:
+            print msg
             return ''
         return bodydata
 
@@ -1566,6 +1590,8 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
                 self.clientCommDict['clients'][
                     self.name]['cmds'].put(clientaction)
                 time.sleep(0)
+        except socket.error as msg:
+            print msg
         except:
             print traceback.format_exc()
 
@@ -1573,7 +1599,9 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         self.protocol.finish()
         self.quit = True
         print 'client disconnected', self.client_address
-        del self.clientCommDict['clients'][self.name]
+        self.clientCommDict['clients'][self.name]['cmds'].put(json.dumps(
+            dict(cmd='del')
+        ))
 
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):

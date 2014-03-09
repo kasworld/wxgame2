@@ -401,6 +401,13 @@ class TCPGameClient(threading.Thread):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(connectTo)
         self.protocol = I32Packet(sock)
+        tn = random.choice(
+            ['team0', 'team1', 'team2', 'team3', 'team4', 'team5', 'team6', 'team7'])
+        self.cmdQueue.put(json.dumps(
+            dict(
+                cmd='make',
+                teamname=tn)
+        ))
 
     def run(self):
         try:
@@ -412,7 +419,7 @@ class TCPGameClient(threading.Thread):
                 self.protocol.sendPacket(cmd)
         except:
             pass
-        self.protocol.socket.close()
+        self.protocol.sock.close()
 
     def shutdown(self):
         self.protocol.finish()
@@ -562,7 +569,7 @@ class ShootingGameClient(wx.Control, FPSlogic):
 
         # AI move
         # self.doFireAndAutoMoveByTime(frameinfo)
-        self.cmdQueue.put('hello world')
+        self.cmdQueue.put(json.dumps(dict(hello='world')))
 
         self.Refresh(False)
 
