@@ -30,6 +30,7 @@ import sys
 import signal
 import threading
 import SocketServer
+import Queue
 import traceback
 import struct
 from euclid import Vector2
@@ -1221,45 +1222,34 @@ class AI0Random(GameObjectGroup):
         return self.mapPro2Act(actions, True)
 
 
-gameState = ''
-
-
 class ShootingGameServer(FPSlogicBase):
 
+    def make1Team(self, teamname):
+        teams = {
+            'team0': {"AIClass": AI2, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
+            'team1': {"AIClass": AI2, "resource": "orange", "teamcolor": (0xff, 0x7f, 0x00)},
+            'team2': {"AIClass": AI2, "resource": "purple", "teamcolor": (0xff, 0x00, 0xff)},
+            'team3': {"AIClass": AI2, "resource": "grey", "teamcolor": (0x7f, 0x7f, 0x7f)},
+            'team4': {"AIClass": AI2, "resource": "red", "teamcolor": (0xff, 0x00, 0x00)},
+            'team5': {"AIClass": AI2, "resource": "yellow", "teamcolor": (0xff, 0xff, 0x00)},
+            'team6': {"AIClass": AI2, "resource": "green", "teamcolor": (0x00, 0xff, 0x00)},
+            'team7': {"AIClass": AI2, "resource": "blue", "teamcolor": (0x00, 0xff, 0xff)},
+        }
+        sel = teams[teamname]
+        o = sel["AIClass"]().initialize(
+            resource=sel["resource"],
+            teamcolor=sel["teamcolor"],
+            teamname=teamname,
+            membercount=1,
+            effectObjs=self.dispgroup['effectObjs'],
+        )
+        o.makeMember()
+        return o
+
     def makeTeam(self):
-        randteam = [
-            {"resource": "white", "color": (0xff, 0xff, 0xff)},
-            {"resource": "orange", "color": (0xff, 0x7f, 0x00)},
-            {"resource": "purple", "color": (0xff, 0x00, 0xff)},
-            {"resource": "grey", "color": (0x7f, 0x7f, 0x7f)},
-            {"resource": "red", "color": (0xff, 0x00, 0x00)},
-            {"resource": "yellow", "color": (0xff, 0xff, 0x00)},
-            {"resource": "green", "color": (0x00, 0xff, 0x00)},
-            {"resource": "blue", "color": (0x00, 0xff, 0xff)},
-        ]
-        teams = [
-            # {"AIClass": AI2, "teamname": 'team0', 'resource': 0},
-            # {"AIClass": AI2, "teamname": 'team1', 'resource': 1},
-            # {"AIClass": AI2, "teamname": 'team2', 'resource': 2},
-            # {"AIClass": AI2, "teamname": 'team3', 'resource': 3},
-            {"AIClass": AI2, "teamname": 'team4', 'resource': 4},
-            {"AIClass": AI2, "teamname": 'team5', 'resource': 5},
-            {"AIClass": AI2, "teamname": 'team6', 'resource': 6},
-            {"AIClass": AI2, "teamname": 'team7', 'resource': 7},
-        ] * 2
         teamobjs = []
-        for sel, d in zip(itertools.cycle(randteam), teams):
-            selpos = d.get('resource', -1)
-            if selpos >= 0 and selpos < len(randteam):
-                sel = randteam[selpos]
-                o = d["AIClass"]().initialize(
-                    resource=sel["resource"],
-                    teamcolor=sel["color"],
-                    teamname=d["teamname"],
-                    membercount=1,
-                    effectObjs=self.dispgroup['effectObjs'],
-                )
-                o.makeMember()
+        for tn in ['team0', 'team1', 'team2', 'team3', 'team4', 'team5', 'team6', 'team7']:
+            o = self.make1Team(tn)
             teamobjs.append(o)
         return teamobjs
 
@@ -1267,6 +1257,9 @@ class ShootingGameServer(FPSlogicBase):
         def setAttr(name, defaultvalue):
             self.__dict__[name] = kwds.pop(name, defaultvalue)
             return self.__dict__[name]
+
+        self.clientCommDict = kwds.pop('clientCommDict')
+
         self.FPSTimerInit(getFrameTime, 70)
 
         self.dispgroup = {}
@@ -1274,11 +1267,6 @@ class ShootingGameServer(FPSlogicBase):
         self.dispgroup['effectObjs'] = GameObjectGroup().initialize()
         self.dispgroup['frontgroup'] = GameObjectGroup().initialize()
         self.dispgroup['objplayers'] = self.makeTeam()
-
-        nowstart = getFrameTime()
-        for dg in self.dispgroup['objplayers']:
-            for o in dg:
-                self.createdTime = nowstart
 
         self.statObjN = Statistics()
         self.statCmpN = Statistics()
@@ -1437,10 +1425,9 @@ class ShootingGameServer(FPSlogicBase):
         return savelist
 
     def saveState(self):
-        global gameState
         savelist = self.makeState()
         tosenddata = zlib.compress(json.dumps(savelist))
-        gameState = tosenddata
+        self.clientCommDict['gameState'] = tosenddata
         return len(tosenddata)
 
     def doFPSlogic(self, frameinfo):
@@ -1453,6 +1440,12 @@ class ShootingGameServer(FPSlogicBase):
         self.statObjN.update(self.frameinfo['objcount'])
 
         self.doFireAndAutoMoveByTime(frameinfo)
+
+        for n, v in self.clientCommDict['clients'].iteritems():
+            try:
+                clientcmd = v['cmds'].get_nowait()
+            except:
+                pass
 
         # make collision dictionary
         resultdict, self.frameinfo['cmpcount'] = self.makeCollisionDict()
@@ -1471,7 +1464,7 @@ class ShootingGameServer(FPSlogicBase):
         self.statPacketL.update(self.saveState())
 
         # 화면에 표시
-        ischanagestatistic = False
+        #ischanagestatistic = False
         if ischanagestatistic:
             print 'objs:', self.statObjN
             print 'cmps:', self.statCmpN
@@ -1521,6 +1514,7 @@ class ShootingGameServer(FPSlogicBase):
 class I32Packet(object):
     headerStruct = struct.Struct('!I')
     headerLen = struct.calcsize('!I')
+
     def __init__(self, socket):
         self.socket = socket
         self.socket.settimeout(0.1)
@@ -1550,36 +1544,45 @@ class I32Packet(object):
     def finish(self):
         self.quit = True
 
+
 class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
-    headerStruct = struct.Struct('!I')
+
     def setup(self):
-        print 'client connected'
+        print 'client connected', self.client_address, threading.current_thread().name
         self.protocol = I32Packet(self.request)
         self.quit = False
+        self.clientCommDict = self.server.clientCommDict
+        self.name = threading.current_thread().name
+        self.clientCommDict['clients'][self.name] = {
+            'cmds': Queue.Queue()
+        }
 
     def handle(self):
         try:
             while self.quit is not True:
-                senddata = gameState
+                senddata = self.clientCommDict['gameState']
                 self.protocol.sendPacket(senddata)
                 clientaction = self.protocol.recvPacket()
+                self.clientCommDict['clients'][
+                    self.name]['cmds'].put(clientaction)
                 time.sleep(0)
         except:
             print traceback.format_exc()
 
-
     def finish(self):
         self.protocol.finish()
         self.quit = True
-        print 'client disconnected'
+        print 'client disconnected', self.client_address
+        del self.clientCommDict['clients'][self.name]
+
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     allow_reuse_address = True
-    pass
 
 
-def runService(HOST, PORT):
-    server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
+def runService(connectTo, clientCommDict):
+    server = ThreadedTCPServer(connectTo, ThreadedTCPRequestHandler)
+    server.clientCommDict = clientCommDict
     # Start a thread with the server -- that thread will then start one
     # more thread for each request
     server_thread = threading.Thread(target=server.serve_forever)
@@ -1599,7 +1602,11 @@ def runService(HOST, PORT):
 
 
 if __name__ == "__main__":
+    clientCommDict = {
+        'gameState': '',
+        'clients': {}
+    }
     connectTo = "0.0.0.0", 22517
     print 'Server start, ', connectTo
-    runService(*connectTo)
-    ShootingGameServer().doGame()
+    runService(connectTo, clientCommDict)
+    ShootingGameServer(clientCommDict=clientCommDict).doGame()

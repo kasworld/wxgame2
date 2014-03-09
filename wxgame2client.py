@@ -455,6 +455,11 @@ class ShootingGameClient(wx.Control, FPSlogic):
         self.dispgroup['effectObjs'] = GameObjectDisplayGroup().initialize()
         self.dispgroup['frontgroup'] = GameObjectDisplayGroup().initialize()
 
+        self.registerRepeatFn(self.prfps, 1)
+
+    def prfps(self, repeatinfo):
+        print 'fps:', self.statFPS
+
     def makeBkObj(self):
         return BackGroundSplite().initialize(dict(
             objtype="background",
@@ -467,7 +472,7 @@ class ShootingGameClient(wx.Control, FPSlogic):
         keycode = evt.GetKeyCode()
         if keycode == wx.WXK_ESCAPE:
             self.framewindow.Close()
-            #self.cmdQueue.put('QUIT')
+            # self.cmdQueue.put('QUIT')
 
     def _OnSize(self, evt):
         self.clientsize = self.GetClientSize()
@@ -558,8 +563,6 @@ class ShootingGameClient(wx.Control, FPSlogic):
         # AI move
         # self.doFireAndAutoMoveByTime(frameinfo)
         self.cmdQueue.put('hello world')
-
-        print 'fps:', frameinfo['stat']
 
         self.Refresh(False)
 
