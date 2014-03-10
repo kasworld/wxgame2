@@ -36,7 +36,7 @@ import wx.grid
 import wx.lib.colourdb
 
 from euclid import Vector2
-from wxgame2server import SpriteObj, GameObjectGroup, random2pi, FPSlogicBase, getFrameTime, I32Packet
+from wxgame2server import SpriteObj, GameObjectGroup, random2pi, FPSlogicBase, getFrameTime, I32Packet, putJson2Queue
 
 # ======== game lib ============
 
@@ -403,22 +403,39 @@ class TCPGameClient(threading.Thread):
         self.protocol = I32Packet(sock)
         tn = random.choice(
             ['team0', 'team1', 'team2', 'team3', 'team4', 'team5', 'team6', 'team7'])
-        self.cmdQueue.put(json.dumps(
-            dict(
-                cmd='make',
-                teamname=tn)
-        ))
+        putJson2Queue(
+            self.cmdQueue,
+            cmd='make',
+            teamname=tn
+        )
 
     def run(self):
-        try:
-            while self.quit is not True:
-                self.stateQueue.put(self.protocol.recvPacket())
-                cmd = self.cmdQueue.get()
-                if cmd == 'QUIT':
-                    break
+        while self.quit is not True:
+            try:
+                rdata = self.protocol.recvPacket()
+            except socket.timeout:
+                continue
+            except socket.error as msg:
+                print msg
+                break
+            try:
+                self.stateQueue.put(rdata)
+            except Queue.Full:
+                break
+            try:
+                cmd = self.cmdQueue.get_nowait()
+            except Queue.Empty:
+                continue
+            if cmd == 'QUIT':
+                break
+            try:
                 self.protocol.sendPacket(cmd)
-        except:
-            pass
+            except socket.timeout:
+                continue
+            except socket.error as msg:
+                print msg
+                break
+
         self.protocol.sock.close()
 
     def shutdown(self):
@@ -432,12 +449,7 @@ def runService(connectTo, queues):
     client_thread = threading.Thread(target=client.run)
     client_thread.start()
 
-    def sigstophandler(signum, frame):
-        print 'User Termination'
-        client.shutdown()
-        client_thread.join(1)
-        sys.exit(0)
-    signal.signal(signal.SIGINT, sigstophandler)
+    return client, client_thread
 
 # ================ tcp client end =========
 
@@ -450,7 +462,7 @@ class ShootingGameClient(wx.Control, FPSlogic):
         self.Bind(wx.EVT_PAINT, self._OnPaint)
         self.Bind(wx.EVT_SIZE, self._OnSize)
         self.Bind(wx.EVT_KEY_DOWN, self.OnKeyDown)
-        self.FPSTimerInit(getFrameTime, 70)
+        self.FPSTimerInit(getFrameTime, 60)
         self.SetBackgroundColour(wx.Colour(0x0, 0x0, 0x0))
 
         self.dispgroup = {}
@@ -500,22 +512,6 @@ class ShootingGameClient(wx.Control, FPSlogic):
         self.dispgroup['effectObjs'].DrawToWxDC(pdc)
         self.dispgroup['frontgroup'].DrawToWxDC(pdc)
 
-    def doFireAndAutoMoveByTime(self, frameinfo):
-        # 그룹내의 bounceball 들을 AI automove 한다.
-        # 자신과 같은 팀을 제외한 targets을 만든다.
-        selmov = self.dispgroup['objplayers'][:]
-        random.shuffle(selmov)
-        for aa in selmov:
-            targets = []
-            for bb in self.dispgroup['objplayers']:
-                if aa.teamname != bb.teamname:
-                    targets.append(bb)
-            aa.FireAndAutoMoveByTime(
-                targets,
-                frameinfo['ThisFPS'],
-                self.thistick
-            )
-
     def applyState(self, loadlist):
         self.dispgroup['objplayers'] = []
         for og in loadlist:
@@ -538,15 +534,24 @@ class ShootingGameClient(wx.Control, FPSlogic):
         return
 
     def loadState(self):
-        recvdata = self.stateQueue.get()
         try:
-            loadlist = json.loads(zlib.decompress(recvdata))
-            self.applyState(loadlist)
-        except:
-            # print 'server not ready'
-            print '.',
-            # print traceback.format_exc()
+            recvdata = self.stateQueue.get_nowait()
+            if recvdata is None:
+                return
+            jsondata = zlib.decompress(recvdata)
+            loadlist = json.loads(jsondata)
+        except Queue.Empty:
             return
+        except zlib.error:
+            print 'zlib decompress fail'
+            return
+        except ValueError:
+            print 'json decode fail', jsondata
+            return
+        except:
+            print traceback.format_exc()
+            return
+        self.applyState(loadlist)
 
     def doFPSlogic(self, frameinfo):
         g_frameinfo.update(frameinfo)
@@ -556,6 +561,8 @@ class ShootingGameClient(wx.Control, FPSlogic):
         for o in self.dispgroup['backgroup']:
             if random.random() < 0.001:
                 o.setAccelVector(o.getAccelVector().addAngle(random2pi()))
+        for gog in self.dispgroup['objplayers']:
+            gog.AutoMoveByTime(self.thistick)
 
         self.dispgroup['effectObjs'].AutoMoveByTime(
             self.thistick).RemoveDisabled()
@@ -568,8 +575,7 @@ class ShootingGameClient(wx.Control, FPSlogic):
         self.loadState()
 
         # AI move
-        # self.doFireAndAutoMoveByTime(frameinfo)
-        self.cmdQueue.put(json.dumps(dict(hello='world')))
+        putJson2Queue(self.cmdQueue, hello='world')
 
         self.Refresh(False)
 
@@ -606,7 +612,14 @@ def runtest():
 
     connectTo = "localhost", 22517
     print 'Client start, ', connectTo
-    runService(connectTo, (stateQueue, cmdQueue))
+    client, client_thread = runService(connectTo, (stateQueue, cmdQueue))
+
+    def sigstophandler(signum, frame):
+        print 'User Termination'
+        client.shutdown()
+        client_thread.join(1)
+        sys.exit(0)
+    signal.signal(signal.SIGINT, sigstophandler)
 
     app = wx.App()
     frame_1 = MyFrame(
@@ -616,7 +629,7 @@ def runtest():
     frame_1.Show()
     app.MainLoop()
     print 'end client'
-    cmdQueue.put('QUIT')
+    sigstophandler(0, 0)
 
 
 if __name__ == "__main__":

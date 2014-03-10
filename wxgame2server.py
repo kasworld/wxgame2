@@ -48,6 +48,10 @@ def random2pi(m=2):
     return math.pi * m * (random.random() - 0.5)
 
 
+def putJson2Queue(qobj, **kwds):
+    qobj.put(json.dumps(kwds))
+
+
 class Storage(dict):
 
     """from gluon storage.py """
@@ -150,9 +154,10 @@ class FPSlogicBase(object):
         return self.repeatingcalldict.pop(fn, [])
 
     def FPSTimer(self, evt):
+        thistime = self.frameTime()
+
         self.frameCount += 1
 
-        thistime = self.frameTime()
         self.frames.append(thistime)
         difftime = self.frames[-1] - self.frames[-2]
 
@@ -1254,7 +1259,7 @@ class ShootingGameServer(FPSlogicBase):
 
         self.clientCommDict = kwds.pop('clientCommDict')
 
-        self.FPSTimerInit(getFrameTime, 70)
+        self.FPSTimerInit(getFrameTime, 60)
 
         self.dispgroup = {}
         self.dispgroup['backgroup'] = GameObjectGroup().initialize()
@@ -1270,6 +1275,15 @@ class ShootingGameServer(FPSlogicBase):
         self.statPacketL = Statistics()
 
         print 'end init'
+
+        self.registerRepeatFn(self.prfps, 1)
+
+    def prfps(self, repeatinfo):
+        print 'objs:', self.statObjN
+        print 'cmps:', self.statCmpN
+        print 'packetlen:', self.statPacketL
+        print 'fps:', self.frameinfo['stat']
+        self.diaplayScore()
 
     def makeCollisionDict(self):
         # 현재 위치를 기준으로 collision / interaction 검사하고
@@ -1427,34 +1441,57 @@ class ShootingGameServer(FPSlogicBase):
         self.clientCommDict['gameState'] = tosenddata
         return len(tosenddata)
 
-    def delTeamByID(self, id):
+    def getTeamByID(self, id):
         findteam = None
         for t in self.dispgroup['objplayers']:
             if t.ID == id:
                 findteam = t
                 break
+        return findteam
+
+    def delTeamByID(self, id):
+        findteam = self.getTeamByID(id)
         if findteam is not None:
             self.dispgroup['objplayers'].remove(findteam)
 
     def processClientCmd(self):
+        """
+        self.clientCommDict = {
+            'gameState': '',
+            'clients': {
+                'thread name' :{
+                    'cmds': Queue,
+                        # { cmd: make , teamname: teamname }
+                        # { cmd: del }
+                    'teamid' : team.ID
+                }
+            }
+        }
+        """
         for n, v in self.clientCommDict['clients'].iteritems():
-            clientcmd = ''
+            if v is None:
+                continue
+            cmdDict = {}
             try:
                 clientcmd = v['cmds'].get_nowait()
-            except:
-                continue
-            try:
                 cmdDict = json.loads(clientcmd)
+            except Queue.Empty:
+                continue
+            except ValueError:
+                print 'json decode fail', clientcmd
+                continue
             except:
+                print traceback.format_exc()
                 continue
             cmd = cmdDict.get('cmd')
             if cmd == 'make':
                 tn = cmdDict.get('teamname')
                 o = self.make1Team(tn)
                 self.dispgroup['objplayers'].append(o)
-                print tn, 'made', o.ID
                 v['teamid'] = o.ID
+                print tn, 'team made', o.ID
             if cmd == 'del':
+                print 'del team', v['teamid']
                 self.delTeamByID(v['teamid'])
                 self.clientCommDict['clients'][n] = None
 
@@ -1474,9 +1511,9 @@ class ShootingGameServer(FPSlogicBase):
         # make collision dictionary
         resultdict, self.frameinfo['cmpcount'] = self.makeCollisionDict()
         self.statCmpN.update(self.frameinfo['cmpcount'])
+
         # do score
-        ischanagestatistic = self.doScore(resultdict)
-        # ischanagestatistic = self.doScoreSimple(resultdict)
+        self.doScore(resultdict)
 
         # 결과에 따라 삭제한다.
         for aa in self.dispgroup['objplayers']:
@@ -1486,17 +1523,6 @@ class ShootingGameServer(FPSlogicBase):
             self.thistick).RemoveDisabled()
 
         self.statPacketL.update(self.saveState())
-
-        # 화면에 표시
-        #ischanagestatistic = False
-        if ischanagestatistic:
-            print 'objs:', self.statObjN
-            print 'cmps:', self.statCmpN
-            print 'packetlen:', self.statPacketL
-            print 'fps:', self.frameinfo['stat']
-            self.diaplayScore()
-
-        return ''
 
     def diaplayScore(self):
         teamscore = {}
@@ -1543,15 +1569,21 @@ class I32Packet(object):
         self.sock = sock
         self.sock.settimeout(0.1)
         self.quit = False
+        self.recvdata = []
 
     def sendPacket(self, data):
         self.sock.sendall(self.headerStruct.pack(len(data)))
         self.sock.sendall(data)
 
+    def recvedLen(self):
+        return sum([len(a) for a in self.recvdata])
+
     def recvData(self, toreceivelen):
-        rtn = ''
-        while len(rtn) < toreceivelen and self.quit is not True:
-            rtn += self.sock.recv(toreceivelen - len(rtn))
+        while self.recvedLen() < toreceivelen:
+            self.recvdata.append(self.sock.recv(toreceivelen))
+        totdata = ''.join(self.recvdata)
+        rtn = totdata[:toreceivelen]
+        self.recvdata = [totdata[toreceivelen:]]
         return rtn
 
     def recvPacket(self):
@@ -1562,7 +1594,7 @@ class I32Packet(object):
             bodydata = self.recvData(bodylen)
         except socket.error as msg:
             print msg
-            return ''
+            return None
         return bodydata
 
     def finish(self):
@@ -1582,26 +1614,42 @@ class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
         }
 
     def handle(self):
-        try:
-            while self.quit is not True:
+        while self.quit is not True:
+            try:
                 senddata = self.clientCommDict['gameState']
                 self.protocol.sendPacket(senddata)
+            except socket.timeout:
+                continue
+            except socket.error as msg:
+                print msg
+                break
+            try:
                 clientaction = self.protocol.recvPacket()
-                self.clientCommDict['clients'][
-                    self.name]['cmds'].put(clientaction)
-                time.sleep(0)
-        except socket.error as msg:
-            print msg
-        except:
-            print traceback.format_exc()
+            except socket.timeout:
+                continue
+            except socket.error as msg:
+                print msg
+                break
+            try:
+                if clientaction is not None:
+                    self.clientCommDict['clients'][
+                        self.name]['cmds'].put(clientaction)
+                # time.sleep(0)
+            except Queue.Full:
+                print 'queue full'
+                break
 
     def finish(self):
         self.protocol.finish()
         self.quit = True
         print 'client disconnected', self.client_address
-        self.clientCommDict['clients'][self.name]['cmds'].put(json.dumps(
-            dict(cmd='del')
-        ))
+        putJson2Queue(
+            self.clientCommDict['clients'][self.name]['cmds'],
+            cmd='del'
+        )
+        # self.clientCommDict['clients'][self.name]['cmds'].put(json.dumps(
+        #     dict(cmd='del')
+        # ))
 
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
@@ -1611,12 +1659,7 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 def runService(connectTo, clientCommDict):
     server = ThreadedTCPServer(connectTo, ThreadedTCPRequestHandler)
     server.clientCommDict = clientCommDict
-    # Start a thread with the server -- that thread will then start one
-    # more thread for each request
     server_thread = threading.Thread(target=server.serve_forever)
-    # Exit the server thread when the main thread terminates
-    #server_thread.daemon = True
-    #server_thread.daemon = False
     server_thread.start()
 
     def sigstophandler(signum, frame):
