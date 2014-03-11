@@ -1554,8 +1554,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         selmov = self.dispgroup['objplayers'][:]
         random.shuffle(selmov)
         for aa in selmov:
-            targets = self.dispgroup['objplayers'][:]
-            targets.remove(aa)
+            targets = [ tt for tt in self.dispgroup['objplayers'] if tt.teamname != aa.teamname ]
 
             actions = aa.getActions(
                 targets,
