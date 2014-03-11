@@ -49,7 +49,7 @@ def random2pi(m=2):
 
 
 def putJson2Queue(qobj, **kwds):
-    qobj.put(json.dumps(kwds))
+    qobj.put(kwds)
 
 
 class Storage(dict):
@@ -199,6 +199,66 @@ class FPSlogicBase(object):
 
     def doFPSlogic(self, thisframe):
         pass
+
+
+class I32gzJsonPacket(object):
+    headerStruct = struct.Struct('!I')
+    headerLen = struct.calcsize('!I')
+
+    def __init__(self, sock):
+        self.sock = sock
+        self.sock.settimeout(0.1)
+        self.quit = False
+        self.recvdata = []
+
+    def sendPacket(self, data):
+        self.sock.sendall(self.headerStruct.pack(len(data)))
+        self.sock.sendall(data)
+
+    def sendJson(self, jsondata):
+        tosenddata = zlib.compress(json.dumps(jsondata))
+        self.sendPacket(tosenddata)
+
+    def recvedLen(self):
+        return sum([len(a) for a in self.recvdata])
+
+    def recvData(self, toreceivelen):
+        while self.recvedLen() < toreceivelen:
+            self.recvdata.append(self.sock.recv(toreceivelen))
+        totdata = ''.join(self.recvdata)
+        rtn = totdata[:toreceivelen]
+        self.recvdata = [totdata[toreceivelen:]]
+        return rtn
+
+    def recvPacket(self):
+        header = self.recvData(self.headerLen)
+        bodylen = self.headerStruct.unpack(header)[0]
+        bodydata = self.recvData(bodylen)
+        return bodydata
+
+    def recvJson(self):
+        try:
+            gzjson = self.recvPacket()
+            jsondata = zlib.decompress(gzjson)
+            rtn = json.loads(jsondata)
+        except socket.timeout:
+            return None
+        except socket.error as msg:
+            print msg
+            return None
+        except zlib.error:
+            print 'zlib decompress fail'
+            return None
+        except ValueError:
+            print 'json decode fail', jsondata
+            return None
+        except:
+            print traceback.format_exc()
+            return
+        return rtn
+
+    def finish(self):
+        self.quit = True
 
 # ======== game lib end ============
 
@@ -620,7 +680,38 @@ class GameObjectGroup(list):
     collision check 의 단위가 된다.
     (inter, in)
     object type: bullet, superbullet, bounceball, None
+
+    독립 버전과 달리 member count는 1만 지원, 이외는 에러임.
     """
+
+    def serialize(self):
+        rtn = {
+            'id': self.ID,
+            'teamname': self.teamname,
+            'resource': self.resource,
+            'objs': []
+        }
+        for o in self:
+            rtn['objs'].append(
+                (o.ID, o.objtype, (o.pos.x, o.pos.y),
+                 (o.movevector.x, o.movevector.y))
+            )
+        return rtn
+
+    def deserialize(self, jsondict, objclass, classargsdict):
+        self.ID = jsondict['id']
+        self.teamname = jsondict['teamname']
+        self.resource = jsondict['resource']
+        for objid, objtype, objpos, objmovevector in jsondict['objs']:
+            argsdict = dict(
+                objtype=objtype,
+                pos=Vector2(*objpos),
+                movevector=Vector2(*objmovevector),
+                group=self
+            )
+            argsdict.update(classargsdict)
+            self.append(objclass().initialize(argsdict))
+        return self
 
     def setAttrs(self, defaultdict, kwds):
         for k, v in defaultdict.iteritems():
@@ -667,10 +758,9 @@ class GameObjectGroup(list):
             },
             "effectObjs": [],
 
-            "membercount": 1,
             "teamname": "red",
             "teamcolor": "red",
-            "resource": "red"
+            "resource": "red",
         }
         self.setAttrs(defaultdict, kwds)
 
@@ -678,9 +768,19 @@ class GameObjectGroup(list):
         self.initStat()
         return self
 
+    def hasBounceBall(self):
+        return len(self) > 1 and self[0].objtype == "bounceball"
+
     def makeMember(self):
-        while len(self) < self.membercount or self[self.membercount - 1].objtype != "bounceball":
+        if not self.hasBounceBall():
             self.addMember(Vector2(random.random(), random.random()))
+
+    def selectRandomBall(self, aimingtargetlist):
+        targetobjs = []
+        for a in aimingtargetlist:
+            if a.hasBounceBall():
+                targetobjs.append(a[0])
+        return random.choice(targetobjs) if targetobjs else None
 
     def addMember(self, newpos):
         self.statistic['act']['bounceball'] += 1
@@ -814,10 +914,6 @@ class GameObjectGroup(list):
             )))
 
     # game logics
-    def AutoMoveByTime(self, thistick):
-        for a in self:
-            a.AutoMoveByTime(thistick)
-        return self
 
     def RemoveDisabled(self):
         rmlist = []
@@ -857,14 +953,7 @@ class GameObjectGroup(list):
         return bucketlist
 
     # AI start funcion
-    def makeAimingTargetList(self, objgrouplist):
-        rtn = []
-        for og in objgrouplist:
-            if self.teamname != og.teamname:
-                rtn.append(og)
-        return rtn
-
-    def FireAndAutoMoveByTime(self, aimingtargetlist, thisFPS=60, thistick=0):
+    def getActions(self, aimingtargetlist, thisFPS=60, thistick=0):
         self.thistick = thistick
         self.tdur = self.thistick - self.statistic["teamStartTime"]
         self.thisFPS = thisFPS
@@ -873,24 +962,28 @@ class GameObjectGroup(list):
         self.usableBulletCountDict = {}
         for act in ["circularbullet", "superbullet", "hommingbullet", "bullet", "accel"]:
             self.usableBulletCountDict[act] = self.tdur * self.actRatePerSec(
-                act) * self.membercount - self.statistic['act'][act]
+                act) - self.statistic['act'][act]
 
-        srclist = self.getBounceBalls()
-        while srclist:
-            src = random.choice(srclist)
-            srclist.remove(src)
+        if self.hasBounceBall():
+            src = self[0]
             src.clearAccelVector()
-
             sttime = getFrameTime()
-            actions = self.SelectAction(aimingtargetlist, src)
-            self.statistic["totalAItime"] += getFrameTime() - sttime
-            self.doSelectedActions(actions, src)
-        self.AutoMoveByTime(thistick)
-        return self
 
-    def doSelectedActions(self, actions, src):
+            # get actions from AI or client
+            actions = self.SelectAction(aimingtargetlist, src)
+
+            self.statistic["totalAItime"] += getFrameTime() - sttime
+            return actions
+        return None
+
+    def applyActions(self, actions):
+        # don't change pos , movevector
+        # fire and change accelvector
+        if actions is None:
+            return
+        src = self[0]
         for act, actargs in actions:
-            if self.actCount(act) > 0:
+            if self.usableBulletCountDict.get(act, 0) > 0:
                 self.statistic['act'][act] += 1
                 if act == "circularbullet":
                     self.AddCircularBullet2(src.pos)
@@ -927,10 +1020,11 @@ class GameObjectGroup(list):
                 if act != 'doNothing':
                     print "%s action %s overuse fail" % (self.teamname, act)
 
-    # 최대 사용 가능 action 제한
-
-    def actCount(self, act):
-        return self.usableBulletCountDict.get(act, 0)
+    def AutoMoveByTime(self, thistick):
+        # change movevector , pos
+        for a in self:
+            a.AutoMoveByTime(thistick)
+        return self
 
     def actRatePerSec(self, act):
         return self.actratedict.get(act, 0)
@@ -986,45 +1080,6 @@ class GameObjectGroup(list):
                 return o
         return None
 
-    def getBounceBalls(self):
-        return [a for a in self[:self.membercount] if a.objtype == "bounceball"]
-
-    def getAllBounceBalls(self, aimingtargetlist):
-        return sum([a.getBounceBalls() for a in aimingtargetlist], [])
-
-    def selectRandomBall(self, aimingtargetlist):
-        targetobjs = self.getAllBounceBalls(aimingtargetlist)
-        return random.choice(targetobjs) if targetobjs else None
-
-    def serialize(self):
-        rtn = {
-            'id': self.ID,
-            'teamname': self.teamname,
-            'resource': self.resource,
-            'objs': []
-        }
-        for o in self:
-            rtn['objs'].append(
-                (o.ID, o.objtype, (o.pos.x, o.pos.y),
-                 (o.movevector.x, o.movevector.y))
-            )
-        return rtn
-
-    def deserialize(self, jsondict, objclass, classargsdict):
-        self.ID = jsondict['id']
-        self.teamname = jsondict['teamname']
-        self.resource = jsondict['resource']
-        for objid, objtype, objpos, objmovevector in jsondict['objs']:
-            argsdict = dict(
-                objtype=objtype,
-                pos=Vector2(*objpos),
-                movevector=Vector2(*objmovevector),
-                group=self
-            )
-            argsdict.update(classargsdict)
-            self.append(objclass().initialize(argsdict))
-        return self
-
     # 실제 각 AI 별로 다르게 만들어야 하는 함수
     def SelectAction(self, aimingtargetlist, src):
         """
@@ -1041,9 +1096,11 @@ class GameObjectGroup(list):
         rtn = []
         for act, p, obj in actionprobabilitylist:
             if applyactcount:
-                cando = random.random() < p * self.actCount(act)
+                cando = random.random() < p * \
+                    self.usableBulletCountDict.get(act, 0)
             else:
-                cando = self.actCount(act) > 0 and random.random() < p
+                cando = self.usableBulletCountDict.get(
+                    act, 0) > 0 and random.random() < p
             if cando:
                 if act in ["hommingbullet", "superbullet", "bullet", "accel"] and not obj:
                     continue
@@ -1228,7 +1285,23 @@ class AI0Random(GameObjectGroup):
         return self.mapPro2Act(actions, True)
 
 
-class ShootingGameServer(FPSlogicBase):
+class ShootingGameMixin(object):
+
+    def getTeamByID(self, id):
+        findteam = None
+        for t in self.dispgroup['objplayers']:
+            if t.ID == id:
+                findteam = t
+                break
+        return findteam
+
+    def delTeamByID(self, id):
+        findteam = self.getTeamByID(id)
+        if findteam is not None:
+            self.dispgroup['objplayers'].remove(findteam)
+
+
+class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
     def make1Team(self, teamname):
         teams = {
@@ -1246,11 +1319,18 @@ class ShootingGameServer(FPSlogicBase):
             resource=sel["resource"],
             teamcolor=sel["teamcolor"],
             teamname=teamname,
-            membercount=1,
             effectObjs=self.dispgroup['effectObjs'],
         )
         o.makeMember()
         return o
+
+    def makegroups(self):
+        self.dispgroup = {}
+        self.dispgroup['backgroup'] = GameObjectGroup().initialize()
+        self.dispgroup['effectObjs'] = GameObjectGroup().initialize()
+        self.dispgroup['frontgroup'] = GameObjectGroup().initialize()
+
+        self.dispgroup['objplayers'] = []
 
     def __init__(self, *args, **kwds):
         def setAttr(name, defaultvalue):
@@ -1261,14 +1341,16 @@ class ShootingGameServer(FPSlogicBase):
 
         self.FPSTimerInit(getFrameTime, 60)
 
-        self.dispgroup = {}
-        self.dispgroup['backgroup'] = GameObjectGroup().initialize()
-        self.dispgroup['effectObjs'] = GameObjectGroup().initialize()
-        self.dispgroup['frontgroup'] = GameObjectGroup().initialize()
+        self.makegroups()
 
-        self.dispgroup['objplayers'] = []
-        # for tn in ['team0', 'team1', 'team2', 'team3', 'team4', 'team5', 'team6', 'team7']:
-        #     self.dispgroup['objplayers'].append(self.make1Team(tn))
+        # server team
+        # for tn in ['team0', 'team1', 'team2', 'team3']:
+        #     o = self.make1Team(tn, servermove=True)
+        #     self.dispgroup['objplayers'].append(o)
+
+        # init free team list
+        for tn in ['team0', 'team1', 'team2', 'team3', 'team4', 'team5', 'team6', 'team7']:
+            self.clientCommDict['FreeTeamList'].put(tn)
 
         self.statObjN = Statistics()
         self.statCmpN = Statistics()
@@ -1276,7 +1358,7 @@ class ShootingGameServer(FPSlogicBase):
 
         print 'end init'
 
-        self.registerRepeatFn(self.prfps, 1)
+        #self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
         print 'objs:', self.statObjN
@@ -1416,16 +1498,6 @@ class ShootingGameServer(FPSlogicBase):
                 self.dispgroup['effectObjs'].addSpriteExplosionEffect(src)
         return ischanagestatistic
 
-    def doFireAndAutoMoveByTime(self, frameinfo):
-        # 그룹내의 bounceball 들을 AI automove 한다.
-        # 자신과 같은 팀을 제외한 targets을 만든다.
-        selmov = self.dispgroup['objplayers'][:]
-        random.shuffle(selmov)
-        for aa in selmov:
-            targets = aa.makeAimingTargetList(self.dispgroup['objplayers'])
-            aa.FireAndAutoMoveByTime(
-                targets, frameinfo['ThisFPS'], self.thistick)
-
     def makeState(self):
         savelist = []
         for og in self.dispgroup['objplayers']:
@@ -1437,63 +1509,63 @@ class ShootingGameServer(FPSlogicBase):
 
     def saveState(self):
         savelist = self.makeState()
-        tosenddata = zlib.compress(json.dumps(savelist))
-        self.clientCommDict['gameState'] = tosenddata
-        return len(tosenddata)
-
-    def getTeamByID(self, id):
-        findteam = None
-        for t in self.dispgroup['objplayers']:
-            if t.ID == id:
-                findteam = t
-                break
-        return findteam
-
-    def delTeamByID(self, id):
-        findteam = self.getTeamByID(id)
-        if findteam is not None:
-            self.dispgroup['objplayers'].remove(findteam)
+        self.clientCommDict['gameState'] = savelist
+        return len(savelist)
 
     def processClientCmd(self):
-        """
-        self.clientCommDict = {
-            'gameState': '',
-            'clients': {
-                'thread name' :{
-                    'cmds': Queue,
-                        # { cmd: make , teamname: teamname }
-                        # { cmd: del }
-                    'teamid' : team.ID
-                }
-            }
-        }
-        """
         for n, v in self.clientCommDict['clients'].iteritems():
             if v is None:
                 continue
-            cmdDict = {}
+            cmdDict = None
             try:
-                clientcmd = v['cmds'].get_nowait()
-                cmdDict = json.loads(clientcmd)
+                cmdDict = v['cmds'].get_nowait()
             except Queue.Empty:
-                continue
-            except ValueError:
-                print 'json decode fail', clientcmd
                 continue
             except:
                 print traceback.format_exc()
                 continue
-            cmd = cmdDict.get('cmd')
-            if cmd == 'make':
-                tn = cmdDict.get('teamname')
-                o = self.make1Team(tn)
-                self.dispgroup['objplayers'].append(o)
-                v['teamid'] = o.ID
-                print tn, 'team made', o.ID
-            if cmd == 'del':
-                print 'del team', v['teamid']
-                self.delTeamByID(v['teamid'])
-                self.clientCommDict['clients'][n] = None
+            if cmdDict is None:
+                continue
+            self.do1ClientCmd(n, v, cmdDict)
+
+    def do1ClientCmd(self, n, v, cmdDict):
+        cmd = cmdDict.get('cmd')
+        if cmd == 'make':
+            tn = cmdDict.get('teamname')
+            o = self.make1Team(tn)
+            self.dispgroup['objplayers'].append(o)
+            v['teamid'] = o.ID
+            print tn, 'team made', o.ID
+        if cmd == 'del':
+            print 'del team', v['teamid']
+            self.delTeamByID(v['teamid'])
+            self.clientCommDict['clients'][n] = None
+        if cmd == 'act':
+            actions = cmdDict.get('actions')
+            tid = cmdDict['team']['teamid']
+            to = self.getTeamByID(tid)
+            actions = cmdDict['actions']
+            to.applyActions(actions)
+            # to.AutoMoveByTime(self.thistick)
+
+    def doFireAndAutoMoveByTime(self, frameinfo):
+        # 그룹내의 bounceball 들을 AI automove 한다.
+        # 자신과 같은 팀을 제외한 targets을 만든다.
+        selmov = self.dispgroup['objplayers'][:]
+        random.shuffle(selmov)
+        for aa in selmov:
+            targets = self.dispgroup['objplayers'][:]
+            targets.remove(aa)
+
+            actions = aa.getActions(
+                targets,
+                frameinfo['ThisFPS'],
+                self.thistick
+            )
+
+            aa.applyActions(actions)
+
+            aa.AutoMoveByTime(self.thistick)
 
     def doFPSlogic(self, frameinfo):
         self.thistick = frameinfo['thistime']
@@ -1504,8 +1576,9 @@ class ShootingGameServer(FPSlogicBase):
 
         self.statObjN.update(self.frameinfo['objcount'])
 
+        # server AI move mode
         self.doFireAndAutoMoveByTime(frameinfo)
-
+        # process client cmds
         self.processClientCmd()
 
         # make collision dictionary
@@ -1529,13 +1602,13 @@ class ShootingGameServer(FPSlogicBase):
         for j in self.dispgroup['objplayers']:
             if j.teamname in teamscore:
                 teamscore[j.teamname]['teamscore'] += j.statistic['teamscore']
-                teamscore[j.teamname]['member'] += j.membercount
+                teamscore[j.teamname]['member'] += 1
             else:
                 teamscore[j.teamname] = dict(
                     teamscore=j.statistic['teamscore'],
                     color=j.resource,
                     ai=j.__class__.__name__,
-                    member=j.membercount
+                    member=1
                 )
 
         print "{:8} {:8} {:>8} {:>8} {:>8}".format(
@@ -1561,95 +1634,102 @@ class ShootingGameServer(FPSlogicBase):
 # ================ tcp server ========
 
 
-class I32Packet(object):
-    headerStruct = struct.Struct('!I')
-    headerLen = struct.calcsize('!I')
-
-    def __init__(self, sock):
-        self.sock = sock
-        self.sock.settimeout(0.1)
-        self.quit = False
-        self.recvdata = []
-
-    def sendPacket(self, data):
-        self.sock.sendall(self.headerStruct.pack(len(data)))
-        self.sock.sendall(data)
-
-    def recvedLen(self):
-        return sum([len(a) for a in self.recvdata])
-
-    def recvData(self, toreceivelen):
-        while self.recvedLen() < toreceivelen:
-            self.recvdata.append(self.sock.recv(toreceivelen))
-        totdata = ''.join(self.recvdata)
-        rtn = totdata[:toreceivelen]
-        self.recvdata = [totdata[toreceivelen:]]
-        return rtn
-
-    def recvPacket(self):
-        try:
-            header = self.recvData(self.headerLen)
-
-            bodylen = self.headerStruct.unpack(header)[0]
-            bodydata = self.recvData(bodylen)
-        except socket.error as msg:
-            print msg
-            return None
-        return bodydata
-
-    def finish(self):
-        self.quit = True
-
-
-class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
+class ClientConnectedThread(SocketServer.BaseRequestHandler):
 
     def setup(self):
-        print 'client connected', self.client_address, threading.current_thread().name
-        self.protocol = I32Packet(self.request)
-        self.quit = False
         self.clientCommDict = self.server.clientCommDict
-        self.name = threading.current_thread().name
-        self.clientCommDict['clients'][self.name] = {
+        try:
+            self.teamname = self.clientCommDict['FreeTeamList'].get()
+        except Queue.Empty:
+            print 'no more team'
+            self.setuped = False
+            return
+        self.setuped = True
+
+        print 'client connected', self.client_address, self.teamname
+        self.protocol = I32gzJsonPacket(self.request)
+        self.quit = False
+        self.clientCommDict['clients'][self.teamname] = {
             'cmds': Queue.Queue()
         }
+        putJson2Queue(
+            self.clientCommDict['clients'][self.teamname]['cmds'],
+            cmd='make',
+            teamname=self.teamname
+        )
+
+    def recvCmd(self):
+        clientaction = self.protocol.recvJson()
+        if clientaction is None:
+            return ''
+        try:
+            self.clientCommDict['clients'][
+                self.teamname]['cmds'].put(clientaction)
+        except Queue.Full:
+            print 'queue full'
+            return 'queue full'
+        return 'OK'
+
+    def sendState(self):
+        try:
+            senddata = self.clientCommDict['gameState']
+            self.protocol.sendJson({
+                'cmd': 'gamestate',
+                'state': senddata
+            })
+        except socket.timeout:
+            return 'timeout'
+        except socket.error as msg:
+            print msg
+            return 'socket error'
+        return 'OK'
+
+    def sendInfo(self):
+        teamid = None
+        while teamid is None:
+            time.sleep(0)
+            teamid = self.clientCommDict[
+                'clients'][self.teamname].get('teamid')
+
+        senddata = {
+            'cmd': 'teaminfo',
+            'teamname': self.teamname,
+            'teamid': teamid
+        }
+        try:
+            self.protocol.sendJson(senddata)
+        except socket.timeout:
+            return 'timeout'
+        except socket.error as msg:
+            print msg
+            return 'socket error'
+        return 'OK'
 
     def handle(self):
+        if self.setuped is not True:
+            return
+
+        if self.sendInfo() != 'OK':
+            return
+
         while self.quit is not True:
-            try:
-                senddata = self.clientCommDict['gameState']
-                self.protocol.sendPacket(senddata)
-            except socket.timeout:
-                continue
-            except socket.error as msg:
-                print msg
+            if self.sendState() in ['socket error']:
                 break
-            try:
-                clientaction = self.protocol.recvPacket()
-            except socket.timeout:
-                continue
-            except socket.error as msg:
-                print msg
-                break
-            try:
-                if clientaction is not None:
-                    self.clientCommDict['clients'][
-                        self.name]['cmds'].put(clientaction)
-                # time.sleep(0)
-            except Queue.Full:
-                print 'queue full'
+            if self.recvCmd() in ['socket error']:
                 break
 
     def finish(self):
+        if self.setuped is not True:
+            return
+
+        self.clientCommDict['FreeTeamList'].put(self.teamname)
         self.protocol.finish()
         self.quit = True
-        print 'client disconnected', self.client_address
+        print 'client disconnected', self.client_address, self.teamname
         putJson2Queue(
-            self.clientCommDict['clients'][self.name]['cmds'],
+            self.clientCommDict['clients'][self.teamname]['cmds'],
             cmd='del'
         )
-        # self.clientCommDict['clients'][self.name]['cmds'].put(json.dumps(
-        #     dict(cmd='del')
-        # ))
 
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
@@ -1657,7 +1737,7 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
 def runService(connectTo, clientCommDict):
-    server = ThreadedTCPServer(connectTo, ThreadedTCPRequestHandler)
+    server = ThreadedTCPServer(connectTo, ClientConnectedThread)
     server.clientCommDict = clientCommDict
     server_thread = threading.Thread(target=server.serve_forever)
     server_thread.start()
@@ -1673,8 +1753,24 @@ def runService(connectTo, clientCommDict):
 
 
 if __name__ == "__main__":
+    """
+    self.clientCommDict = {
+        'gameState': '',
+        'clients': {
+            'teamname' :{
+                'cmds': Queue,
+                    # { cmd: make , teamname: teamname }
+                    # { cmd: del }
+                    # { cmd: act , actions: actions }
+                'teamid' : team.ID
+            }
+        }
+    }
+    """
     clientCommDict = {
         'gameState': '',
+        'FreeTeamList': Queue.Queue(),
+        'GameCmds': Queue.Queue(),
         'clients': {}
     }
     connectTo = "0.0.0.0", 22517
