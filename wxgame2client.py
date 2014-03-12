@@ -527,8 +527,7 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         self.dispgroup['frontgroup'].DrawToWxDC(pdc)
 
     def applyState(self, loadlist):
-        self.dispgroup['objplayers'] = []
-        for og in loadlist:
+        def makeGameObjectDisplayGroup(og):
             gog = GameObjectDisplayGroup(
             ).initialize(
                 resource=og['resource']
@@ -539,12 +538,68 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
                     shapefn=ShootingGameObject.ShapeChange_None,
                 )
             )
+
             for o in gog:
                 rcs = gog.rcsdict[o.objtype]
                 if o.objtype in ['bounceball', 'supershield']:
                     rcs = random.choice(rcs)
                 o.loadResource(rcs)
-            self.dispgroup['objplayers'].append(gog)
+            return gog
+
+        def updateGameObjectDisplayGroup(oriog, og):
+            oldobjs = oriog[:]
+            del oriog[:]
+
+            for objid, objtype, objpos, objmovevector in og['objs']:
+                existobj = None
+                for i in oldobjs:
+                    if i.ID == objid:
+                        existobj = i
+                        break
+
+                #existobj = oldobjs.findObjByID(objid)
+                if existobj:
+                    oriog.append(existobj)
+                    existobj.updateObj(dict(
+                        pos=Vector2(*objpos),
+                        movevector=Vector2(*objmovevector),
+                        group=oriog
+                    ))
+                else:
+                    argsdict = dict(
+                        objtype=objtype,
+                        pos=Vector2(*objpos),
+                        movevector=Vector2(*objmovevector),
+                        group=oriog,
+                        shapefn=ShootingGameObject.ShapeChange_None,
+                    )
+                    o = ShootingGameObject().initialize(argsdict)
+                    oriog.append(o)
+
+                    rcs = oriog.rcsdict[o.objtype]
+                    if o.objtype in ['bounceball', 'supershield']:
+                        rcs = random.choice(rcs)
+                    o.loadResource(rcs)
+            return oriog
+
+        #self.dispgroup['objplayers'] = []
+        newgroup = []
+        for og in loadlist['objplayers']:
+            oldgog = self.getTeamByID(og['id'])
+            if oldgog is None:
+                gog = makeGameObjectDisplayGroup(og)
+            else:
+                gog = updateGameObjectDisplayGroup(oldgog, og)
+
+            # if gog.ID == self.myteam['teamid']:
+            #     gog.statistic["teamStartTime"] = self.myteam['teamStartTime']
+            newgroup.append(gog)
+
+        self.dispgroup['objplayers'] = newgroup
+
+        gog = makeGameObjectDisplayGroup(loadlist['effectObjs'])
+        self.dispgroup['effectObjs'] = gog
+
         return
 
     def processCmd(self):
@@ -559,20 +614,55 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
             return
         cmd = cmdDict.get('cmd')
         if cmd == 'gamestate':
-            loadlist = cmdDict.get('state')
-            self.applyState(loadlist)
+            try:
+                self.applyState(cmdDict)
+            except:
+                print traceback.format_exc()
+                return
+
         if cmd == 'teaminfo':
             teamname = cmdDict.get('teamname')
             teamid = cmdDict.get('teamid')
-            print 'joined', teamname, teamid
+            print 'joined', teamname, teamid, self.teams[teamname]
             self.myteam = {
                 'teamname': teamname,
-                'teamid': teamid
+                'teamid': teamid,
+                'teamStartTime': self.thistick,
             }
+
+    def makeClientAIAction(self, frameinfo):
+        # make AI action
+        if self.myteam is None:
+            return
+        aa = self.getTeamByID(self.myteam['teamid'])
+        if aa is None:
+            return
+        targets = [tt for tt in self.dispgroup[
+            'objplayers'] if tt.teamname != aa.teamname]
+
+        aa.prepareActions(
+            targets,
+            frameinfo['ThisFPS'],
+            self.thistick
+        )
+        actions = aa.SelectAction(targets, aa[0])
+
+        actionjson = self.serializeActions(actions)
+        # print actions, actionjson
+
+        putJson2Queue(
+            self.cmdQueue,
+            cmd='act',
+            team=self.myteam,
+            actions=actionjson,
+        )
 
     def doFPSlogic(self, frameinfo):
         g_frameinfo.update(frameinfo)
         self.thistick = frameinfo['thistime']
+
+        self.processCmd()
+        self.makeClientAIAction(frameinfo)
 
         self.dispgroup['backgroup'].AutoMoveByTime(self.thistick)
         for o in self.dispgroup['backgroup']:
@@ -589,24 +679,6 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         for o in self.dispgroup['frontgroup']:
             if random.random() < 0.001:
                 o.setAccelVector(o.getAccelVector().addAngle(random2pi()))
-
-        self.processCmd()
-
-        # if self.myteam is not None:
-        #     aa = self.getTeamByID(self.myteam['teamid'])
-
-        #     targets = aa.makeAimingTargetList(self.dispgroup['objplayers'])
-        #     aa.getActionsAndApply(
-        #         targets, frameinfo['ThisFPS'], self.thistick)
-
-        # AI move
-        actions = None
-        putJson2Queue(
-            self.cmdQueue,
-            cmd='act',
-            team=self.myteam,
-            actions=actions,
-        )
 
         self.Refresh(False)
 

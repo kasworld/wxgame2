@@ -223,7 +223,7 @@ class I32gzJsonPacket(object):
         return sum([len(a) for a in self.recvdata])
 
     def recvData(self, toreceivelen):
-        while self.recvedLen() < toreceivelen:
+        while self.recvedLen() < toreceivelen and not self.quit:
             self.recvdata.append(self.sock.recv(toreceivelen))
         totdata = ''.join(self.recvdata)
         rtn = totdata[:toreceivelen]
@@ -250,7 +250,7 @@ class I32gzJsonPacket(object):
             print 'zlib decompress fail'
             return None
         except ValueError:
-            print 'json decode fail', jsondata
+            print 'decode fail'
             return None
         except:
             print traceback.format_exc()
@@ -331,7 +331,12 @@ class SpriteObj(Storage):
                 self[k] = v
 
     def __str__(self):
-        return pprint.pformat(dict(self))
+        return '[SpriteObj:{}:{}: pos:{} mv:{}]'.format(
+            self.objtype,
+            self.ID,
+            self.pos,
+            self.movevector
+        )
 
     def __hash__(self):
         return self.ID
@@ -522,7 +527,6 @@ class SpriteObj(Storage):
 
     def setAccelVector(self, vt):
         self.movefnargs["accelvector"] = vt
-        # print self
 
     def clearAccelVector(self):
         self.movefnargs["accelvector"] = Vector2(0, 0)
@@ -713,6 +717,18 @@ class GameObjectGroup(list):
             self.append(objclass().initialize(argsdict))
         return self
 
+    def deserializeUpdate(self, jsondict, objclass, classargsdict):
+        for objid, objtype, objpos, objmovevector in jsondict['objs']:
+            argsdict = dict(
+                objtype=objtype,
+                pos=Vector2(*objpos),
+                movevector=Vector2(*objmovevector),
+                group=self
+            )
+            argsdict.update(classargsdict)
+            self.append(objclass().initialize(argsdict))
+        return self
+
     def setAttrs(self, defaultdict, kwds):
         for k, v in defaultdict.iteritems():
             setattr(self, k, kwds.pop(k, v))
@@ -761,6 +777,7 @@ class GameObjectGroup(list):
             "teamname": "red",
             "teamcolor": "red",
             "resource": "red",
+            "servermove": True
         }
         self.setAttrs(defaultdict, kwds)
 
@@ -770,6 +787,12 @@ class GameObjectGroup(list):
 
     def hasBounceBall(self):
         return len(self) > 1 and self[0].objtype == "bounceball"
+
+    def findObjByID(self, id):
+        for o in self:
+            if o.ID == id:
+                return o
+        return None
 
     def makeMember(self):
         if not self.hasBounceBall():
@@ -953,7 +976,7 @@ class GameObjectGroup(list):
         return bucketlist
 
     # AI start funcion
-    def getActions(self, aimingtargetlist, thisFPS=60, thistick=0):
+    def prepareActions(self, aimingtargetlist, thisFPS=60, thistick=0):
         self.thistick = thistick
         self.tdur = self.thistick - self.statistic["teamStartTime"]
         self.thisFPS = thisFPS
@@ -964,17 +987,17 @@ class GameObjectGroup(list):
             self.usableBulletCountDict[act] = self.tdur * self.actRatePerSec(
                 act) - self.statistic['act'][act]
 
-        if self.hasBounceBall():
-            src = self[0]
-            src.clearAccelVector()
-            sttime = getFrameTime()
+        if self.hasBounceBall() is not True:
+            return None
 
-            # get actions from AI or client
-            actions = self.SelectAction(aimingtargetlist, src)
+        src = self[0]
+        src.clearAccelVector()
+        sttime = getFrameTime()
 
-            self.statistic["totalAItime"] += getFrameTime() - sttime
-            return actions
-        return None
+        # get actions from AI or client
+        #actions = self.SelectAction(aimingtargetlist, src)
+
+        self.statistic["totalAItime"] += getFrameTime() - sttime
 
     def applyActions(self, actions):
         # don't change pos , movevector
@@ -1286,6 +1309,16 @@ class AI0Random(GameObjectGroup):
 
 
 class ShootingGameMixin(object):
+    teams = {
+        'team0': {"AIClass": AI2, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
+        'team1': {"AIClass": AI2, "resource": "orange", "teamcolor": (0xff, 0x7f, 0x00)},
+        'team2': {"AIClass": AI2, "resource": "purple", "teamcolor": (0xff, 0x00, 0xff)},
+        'team3': {"AIClass": AI2, "resource": "grey", "teamcolor": (0x7f, 0x7f, 0x7f)},
+        'team4': {"AIClass": AI2, "resource": "red", "teamcolor": (0xff, 0x00, 0x00)},
+        'team5': {"AIClass": AI2, "resource": "yellow", "teamcolor": (0xff, 0xff, 0x00)},
+        'team6': {"AIClass": AI2, "resource": "green", "teamcolor": (0x00, 0xff, 0x00)},
+        'team7': {"AIClass": AI2, "resource": "blue", "teamcolor": (0x00, 0xff, 0xff)},
+    }
 
     def getTeamByID(self, id):
         findteam = None
@@ -1295,31 +1328,66 @@ class ShootingGameMixin(object):
                 break
         return findteam
 
+    def getBallByID(self, id):
+        findball = None
+        for t in self.dispgroup['objplayers']:
+            if t.hasBounceBall() and t[0].ID == id:
+                findball = t[0]
+                break
+        return findball
+
     def delTeamByID(self, id):
         findteam = self.getTeamByID(id)
         if findteam is not None:
             self.dispgroup['objplayers'].remove(findteam)
 
+    def serializeActions(self, actions):
+        if actions is None:
+            return None
+        actionsjson = []
+        try:
+            for oname, args in actions:
+                if isinstance(args, Vector2):
+                    actionsjson.append((oname, (args.x, args.y)))
+                elif oname == 'hommingbullet':
+                    actionsjson.append((oname, args.ID))
+                else:
+                    actionsjson.append((oname, args))
+            return actionsjson
+        except:
+            print traceback.format_exc()
+            print actionjson, actions
+            return None
+
+    def deserializeActions(self, actionjson):
+        if actionjson is None:
+            return None
+        actions = []
+        try:
+            for oname, args in actionjson:
+                if oname == 'hommingbullet':
+                    actions.append((oname, self.getBallByID(args)))
+                elif args and len(args) == 2:
+                    actions.append((oname, Vector2(*args)))
+                else:
+                    actions.append((oname, args))
+            return actions
+        except:
+            print traceback.format_exc()
+            print actionjson, actions
+            return None
+
 
 class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
-    def make1Team(self, teamname):
-        teams = {
-            'team0': {"AIClass": AI2, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
-            'team1': {"AIClass": AI2, "resource": "orange", "teamcolor": (0xff, 0x7f, 0x00)},
-            'team2': {"AIClass": AI2, "resource": "purple", "teamcolor": (0xff, 0x00, 0xff)},
-            'team3': {"AIClass": AI2, "resource": "grey", "teamcolor": (0x7f, 0x7f, 0x7f)},
-            'team4': {"AIClass": AI2, "resource": "red", "teamcolor": (0xff, 0x00, 0x00)},
-            'team5': {"AIClass": AI2, "resource": "yellow", "teamcolor": (0xff, 0xff, 0x00)},
-            'team6': {"AIClass": AI2, "resource": "green", "teamcolor": (0x00, 0xff, 0x00)},
-            'team7': {"AIClass": AI2, "resource": "blue", "teamcolor": (0x00, 0xff, 0xff)},
-        }
-        sel = teams[teamname]
+    def make1Team(self, teamname, servermove):
+        sel = self.teams[teamname]
         o = sel["AIClass"]().initialize(
             resource=sel["resource"],
             teamcolor=sel["teamcolor"],
             teamname=teamname,
             effectObjs=self.dispgroup['effectObjs'],
+            servermove=servermove
         )
         o.makeMember()
         return o
@@ -1344,12 +1412,13 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.makegroups()
 
         # server team
-        # for tn in ['team0', 'team1', 'team2', 'team3']:
-        #     o = self.make1Team(tn, servermove=True)
-        #     self.dispgroup['objplayers'].append(o)
+        for tn in ['team0', 'team1', 'team2', 'team3']:
+            o = self.make1Team(tn, servermove=True)
+            self.dispgroup['objplayers'].append(o)
 
         # init free team list
-        for tn in ['team0', 'team1', 'team2', 'team3', 'team4', 'team5', 'team6', 'team7']:
+        # client team
+        for tn in ['team4', 'team5', 'team6', 'team7']:
             self.clientCommDict['FreeTeamList'].put(tn)
 
         self.statObjN = Statistics()
@@ -1366,6 +1435,38 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         print 'packetlen:', self.statPacketL
         print 'fps:', self.frameinfo['stat']
         self.diaplayScore()
+
+    def diaplayScore(self):
+        teamscore = {}
+        for j in self.dispgroup['objplayers']:
+            if j.teamname in teamscore:
+                teamscore[j.teamname]['teamscore'] += j.statistic['teamscore']
+                teamscore[j.teamname]['member'] += 1
+                teamscore[j.teamname]['objcount'] += len(j)
+            else:
+                teamscore[j.teamname] = dict(
+                    teamscore=j.statistic['teamscore'],
+                    color=j.resource,
+                    ai=j.__class__.__name__,
+                    member=1,
+                    objcount=len(j)
+                )
+
+        print "{:8} {:8} {:>8} {:>8} {:>8} {:8}".format(
+            'teamname', 'color', 'AI type', 'member', 'score', 'objcount'
+        )
+        sortedinfo = sorted(
+            teamscore.keys(), key=lambda x: -teamscore[x]['teamscore'])
+
+        for j in sortedinfo:
+            print "{:8} {:8} {:>8} {:8} {:8.4f} {:8}".format(
+                j,
+                teamscore[j]['color'],
+                teamscore[j]['ai'],
+                teamscore[j]['member'],
+                teamscore[j]['teamscore'],
+                teamscore[j]['objcount']
+            )
 
     def makeCollisionDict(self):
         # 현재 위치를 기준으로 collision / interaction 검사하고
@@ -1499,17 +1600,27 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         return ischanagestatistic
 
     def makeState(self):
-        savelist = []
-        for og in self.dispgroup['objplayers']:
-            savelist.append(og.serialize())
-
-        og = self.dispgroup['effectObjs']
-        savelist.append(og.serialize())
+        savelist = {
+            'cmd': 'gamestate',
+            'objplayers': [og.serialize() for og in self.dispgroup['objplayers']],
+            'effectObjs': self.dispgroup['effectObjs'].serialize()
+        }
         return savelist
 
     def saveState(self):
-        savelist = self.makeState()
-        self.clientCommDict['gameState'] = savelist
+        try:
+            savelist = zlib.compress(json.dumps(self.makeState()))
+            self.clientCommDict['gameState'] = savelist
+        except zlib.error:
+            print 'zlib compress fail'
+            return 0
+        except ValueError:
+            print 'encode fail'
+            return 0
+        except:
+            print traceback.format_exc()
+            return 0
+
         return len(savelist)
 
     def processClientCmd(self):
@@ -1532,7 +1643,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         cmd = cmdDict.get('cmd')
         if cmd == 'make':
             tn = cmdDict.get('teamname')
-            o = self.make1Team(tn)
+            o = self.make1Team(tn, servermove=False)
             self.dispgroup['objplayers'].append(o)
             v['teamid'] = o.ID
             print tn, 'team made', o.ID
@@ -1544,9 +1655,19 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             actions = cmdDict.get('actions')
             tid = cmdDict['team']['teamid']
             to = self.getTeamByID(tid)
-            actions = cmdDict['actions']
+            actionjson = cmdDict['actions']
+            actions = self.deserializeActions(actionjson)
+
+            targets = [tt for tt in self.dispgroup[
+                'objplayers'] if tt.teamname != to.teamname]
+            to.prepareActions(
+                targets,
+                self.frameinfo['ThisFPS'],
+                self.thistick
+            )
+
             to.applyActions(actions)
-            # to.AutoMoveByTime(self.thistick)
+            to.AutoMoveByTime(self.thistick)
 
     def doFireAndAutoMoveByTime(self, frameinfo):
         # 그룹내의 bounceball 들을 AI automove 한다.
@@ -1554,15 +1675,19 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         selmov = self.dispgroup['objplayers'][:]
         random.shuffle(selmov)
         for aa in selmov:
-            targets = [ tt for tt in self.dispgroup['objplayers'] if tt.teamname != aa.teamname ]
+            if aa.servermove is not True:
+                continue
 
-            actions = aa.getActions(
-                targets,
-                frameinfo['ThisFPS'],
-                self.thistick
-            )
-
-            aa.applyActions(actions)
+            if aa.hasBounceBall():
+                targets = [tt for tt in self.dispgroup[
+                    'objplayers'] if tt.teamname != aa.teamname]
+                aa.prepareActions(
+                    targets,
+                    frameinfo['ThisFPS'],
+                    self.thistick
+                )
+                actions = aa.SelectAction(targets, aa[0])
+                aa.applyActions(actions)
 
             aa.AutoMoveByTime(self.thistick)
 
@@ -1596,35 +1721,6 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
         self.statPacketL.update(self.saveState())
 
-    def diaplayScore(self):
-        teamscore = {}
-        for j in self.dispgroup['objplayers']:
-            if j.teamname in teamscore:
-                teamscore[j.teamname]['teamscore'] += j.statistic['teamscore']
-                teamscore[j.teamname]['member'] += 1
-            else:
-                teamscore[j.teamname] = dict(
-                    teamscore=j.statistic['teamscore'],
-                    color=j.resource,
-                    ai=j.__class__.__name__,
-                    member=1
-                )
-
-        print "{:8} {:8} {:>8} {:>8} {:>8}".format(
-            'teamname', 'color', 'AI type', 'member', 'score'
-        )
-        sortedinfo = sorted(
-            teamscore.keys(), key=lambda x: -teamscore[x]['teamscore'])
-
-        for j in sortedinfo:
-            print "{:8} {:8} {:>8} {:8} {:8.4f}".format(
-                j,
-                teamscore[j]['color'],
-                teamscore[j]['ai'],
-                teamscore[j]['member'],
-                teamscore[j]['teamscore'],
-            )
-
     def doGame(self):
         while True:
             self.FPSTimer(0)
@@ -1638,8 +1734,9 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
     def setup(self):
         self.clientCommDict = self.server.clientCommDict
         try:
-            self.teamname = self.clientCommDict['FreeTeamList'].get()
+            self.teamname = self.clientCommDict['FreeTeamList'].get_nowait()
         except Queue.Empty:
+            # self.request.close()
             print 'no more team'
             self.setuped = False
             return
@@ -1672,10 +1769,7 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
     def sendState(self):
         try:
             senddata = self.clientCommDict['gameState']
-            self.protocol.sendJson({
-                'cmd': 'gamestate',
-                'state': senddata
-            })
+            self.protocol.sendPacket(senddata)
         except socket.timeout:
             return 'timeout'
         except socket.error as msg:
@@ -1721,10 +1815,11 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
         if self.setuped is not True:
             return
 
-        self.clientCommDict['FreeTeamList'].put(self.teamname)
         self.protocol.finish()
         self.quit = True
         print 'client disconnected', self.client_address, self.teamname
+
+        self.clientCommDict['FreeTeamList'].put(self.teamname)
         putJson2Queue(
             self.clientCommDict['clients'][self.teamname]['cmds'],
             cmd='del'
