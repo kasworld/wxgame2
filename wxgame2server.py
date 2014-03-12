@@ -717,18 +717,6 @@ class GameObjectGroup(list):
             self.append(objclass().initialize(argsdict))
         return self
 
-    def deserializeUpdate(self, jsondict, objclass, classargsdict):
-        for objid, objtype, objpos, objmovevector in jsondict['objs']:
-            argsdict = dict(
-                objtype=objtype,
-                pos=Vector2(*objpos),
-                movevector=Vector2(*objmovevector),
-                group=self
-            )
-            argsdict.update(classargsdict)
-            self.append(objclass().initialize(argsdict))
-        return self
-
     def setAttrs(self, defaultdict, kwds):
         for k, v in defaultdict.iteritems():
             setattr(self, k, kwds.pop(k, v))
@@ -747,18 +735,10 @@ class GameObjectGroup(list):
             "doNothing": 0,
         }
         self.statistic = {
-            'hitby': dict(statdict),
-            'hitto': dict(statdict),
             'act': dict(statdict),
 
             "teamStartTime": getFrameTime(),
             "teamscore": 0,
-            "maxscore": 0,
-            "totalAItime": 0.0,
-            "maxLevel": 0,
-            "maxlost": 0,
-            "maxcollision": 0,
-            "maxlevelup": 0,
         }
 
     # 표준 interface들 .
@@ -992,12 +972,6 @@ class GameObjectGroup(list):
 
         src = self[0]
         src.clearAccelVector()
-        sttime = getFrameTime()
-
-        # get actions from AI or client
-        #actions = self.SelectAction(aimingtargetlist, src)
-
-        self.statistic["totalAItime"] += getFrameTime() - sttime
 
     def applyActions(self, actions):
         # don't change pos , movevector
@@ -1012,8 +986,7 @@ class GameObjectGroup(list):
                     self.AddCircularBullet2(src.pos)
                 elif act == "superbullet":
                     if actargs:
-                        self.AddTargetSuperBullet(
-                            src.pos, actargs)
+                        self.AddTargetSuperBullet(src.pos, actargs)
                     else:
                         print "Error %s %s %s" % (act, src, actargs)
                 elif act == "hommingbullet":
@@ -1033,7 +1006,6 @@ class GameObjectGroup(list):
                 elif act == "accel":
                     if actargs:
                         src.setAccelVector(actargs)
-                        self.statistic['hitto'][act] += abs(actargs)
                     else:
                         print "Error %s %s %s" % (act, src, actargs)
                 else:
@@ -1414,7 +1386,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         # server team
         for tn in ['team0', 'team1', 'team2', 'team3']:
             o = self.make1Team(tn, servermove=True)
-            self.dispgroup['objplayers'].append(o)
+            # self.dispgroup['objplayers'].append(o)
 
         # init free team list
         # client team
@@ -1494,54 +1466,6 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                         o1.checkCollisionAppend(o2, resultdict)
         return resultdict, cmpsum
 
-    def doScoreSimple(self, resultdict):
-        ischanagestatistic = False
-        for src, targets in resultdict.iteritems():
-            # 충돌한 것이 bounceball 이면
-            if src.objtype == 'bounceball':
-                ischanagestatistic = True
-                src.group.addBallExplosionEffect(
-                    self.dispgroup['effectObjs'], src.group, src)
-                src.enabled = False
-
-                srcLostScore = src.getDelScore(math.sqrt(src.level))
-                src.group.statistic["maxlost"] = max(
-                    src.group.statistic["maxlost"], srcLostScore)
-                src.group.statistic["teamscore"] -= srcLostScore
-
-                src.group.statistic["hitby"]['total'] += 1
-
-                uplevel = srcLostScore / len(targets)
-                src.group.statistic["maxcollision"] = max(
-                    src.group.statistic["maxcollision"], len(targets))
-
-                for target in targets:
-                    target.group.statistic["hitto"]['total'] += 1
-
-                    target.group.statistic["hitto"][target.objtype] += 1
-                    src.group.statistic["hitby"][target.objtype] += 1
-
-                    if target.objtype != 'bounceball':
-
-                        if target.group and target.group[0].objtype == 'bounceball':
-                            oldlevel = target.group[0].level
-                            target.group[0].level += uplevel
-                            target.group.statistic['maxLevel'] = max(target.group[
-                                                                     0].level, target.group.statistic['maxLevel'])
-                            target.group.statistic["maxlevelup"] = max(
-                                target.group.statistic["maxlevelup"], uplevel)
-
-                    # if target.objtype not in [
-                    # 'bounceball','supershield','shield' ]:
-                    target.group.statistic["teamscore"] += uplevel
-                    target.group.statistic["maxscore"] = max(target.group.statistic[
-                                                             "maxscore"], target.group.statistic["teamscore"])
-
-            else:
-                src.enabled = False
-                self.dispgroup['effectObjs'].addSpriteExplosionEffect(src)
-        return ischanagestatistic
-
     def doScore(self, resultdict):
         ischanagestatistic = False
         for src, targets in resultdict.iteritems():
@@ -1551,36 +1475,16 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                 src.group.addBallExplosionEffect(
                     self.dispgroup['effectObjs'], src.group, src)
                 src.enabled = False
-
                 srcLostScore = src.getDelScore(math.sqrt(src.level))
-                src.group.statistic["maxlost"] = max(
-                    src.group.statistic["maxlost"], srcLostScore)
                 src.group.statistic["teamscore"] -= srcLostScore
-
-                src.group.statistic["hitby"]['total'] += 1
-
                 uplevel = srcLostScore * 2 / len(targets)
-                src.group.statistic["maxcollision"] = max(
-                    src.group.statistic["maxcollision"], len(targets))
-
                 for target in targets:
-                    target.group.statistic["hitto"]['total'] += 1
-
-                    target.group.statistic["hitto"][target.objtype] += 1
-                    src.group.statistic["hitby"][target.objtype] += 1
-
                     if target.objtype != 'bounceball':
-
                         if target.group and target.group[0].objtype == 'bounceball':
                             oldlevel = target.group[0].level
                             target.group[0].level += uplevel
-                            target.group.statistic['maxLevel'] = max(target.group[
-                                                                     0].level, target.group.statistic['maxLevel'])
-                            target.group.statistic["maxlevelup"] = max(
-                                target.group.statistic["maxlevelup"], uplevel)
-
-                            inclevel = int(target.group[
-                                           0].level) - int(oldlevel)
+                            inclevel = int(
+                                target.group[0].level) - int(oldlevel)
                             for i in range(inclevel):
                                 target.group.statistic[
                                     'act']['supershield'] += 1
@@ -1589,11 +1493,8 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                                     expireFn=self.dispgroup[
                                         'effectObjs'].addSpriteExplosionEffect
                                 )
-
                     if target.objtype not in ['bounceball', 'supershield', 'shield']:
                         target.group.statistic["teamscore"] += uplevel
-                        target.group.statistic["maxscore"] = max(target.group.statistic[
-                                                                 "maxscore"], target.group.statistic["teamscore"])
             else:
                 src.enabled = False
                 self.dispgroup['effectObjs'].addSpriteExplosionEffect(src)

@@ -15,22 +15,15 @@
 Version = '2.1.0'
 
 import random
-import zlib
 import math
 import traceback
 import os
 import os.path
 import sys
-try:
-    import simplejson as json
-except:
-    import json
 import socket
-import struct
 import signal
 import threading
 import Queue
-import time
 import wx
 import wx.grid
 import wx.lib.colourdb
@@ -662,15 +655,14 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         self.thistick = frameinfo['thistime']
 
         self.processCmd()
+        for gog in self.dispgroup['objplayers']:
+            gog.AutoMoveByTime(self.thistick)
         self.makeClientAIAction(frameinfo)
 
         self.dispgroup['backgroup'].AutoMoveByTime(self.thistick)
         for o in self.dispgroup['backgroup']:
             if random.random() < 0.001:
                 o.setAccelVector(o.getAccelVector().addAngle(random2pi()))
-
-        for gog in self.dispgroup['objplayers']:
-            gog.AutoMoveByTime(self.thistick)
 
         self.dispgroup['effectObjs'].AutoMoveByTime(
             self.thistick).RemoveDisabled()
@@ -711,9 +703,13 @@ class MyFrame(wx.Frame):
 
 
 def runtest():
+    if len(sys.argv) == 2:
+        destip = sys.argv[1]
+    else:
+        destip = 'localhost'
     (recvQueue, cmdQueue) = Queue.Queue(), Queue.Queue()
 
-    connectTo = "localhost", 22517
+    connectTo = destip, 22517
     print 'Client start, ', connectTo
     client, client_thread = runService(connectTo, (recvQueue, cmdQueue))
 
