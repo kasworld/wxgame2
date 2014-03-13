@@ -11,9 +11,7 @@
     모든? action은 frame 간의 시간차에 따라 보정 된다.
     문제점은 frame간에 지나가 버린 경우 이동 루트상으론 collision 이 일어나야 하지만 검출 불가.
 """
-
 Version = '2.1.0'
-
 import random
 import math
 import traceback
@@ -27,13 +25,12 @@ import Queue
 import wx
 import wx.grid
 import wx.lib.colourdb
-
 from euclid import Vector2
 #from wxgame2server import GameObjectGroup
 from wxgame2server import SpriteObj, random2pi, FPSlogicBase
 from wxgame2server import getFrameTime, I32gzJsonPacket, putJson2Queue, ShootingGameMixin
 from wxgame2server import AI2 as GameObjectGroup
-
+#from wxgame2server import GameObjectGroup
 # ======== game lib ============
 
 
@@ -156,12 +153,8 @@ class FPSlogic(FPSlogicBase):
 
     def FPSTimerDel(self):
         self.timer.Stop()
-
-
 # ======== game lib end ============
-
 g_rcs = GameResource('resource')
-
 g_frameinfo = {}
 
 
@@ -385,9 +378,8 @@ class GameObjectDisplayGroup(GameObjectGroup):
         for a in self:
             a.DrawToWxDC(pdc, clientsize, sizehint)
         return self
-
-
 # ================ tcp client =========
+
 
 class TCPGameClient(threading.Thread):
 
@@ -451,7 +443,6 @@ def runService(connectTo, queues):
     client_thread.start()
 
     return client, client_thread
-
 # ================ tcp client end =========
 
 
@@ -479,7 +470,7 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
             self.makeBkObj()
         )
 
-        self.registerRepeatFn(self.prfps, 1)
+        #self.registerRepeatFn(self.prfps, 1)
 
         self.myteam = None
 
@@ -539,56 +530,31 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
                 o.loadResource(rcs)
             return gog
 
-        def updateGameObjectDisplayGroup(oriog, og):
-            oldobjs = oriog[:]
-            del oriog[:]
+        def getTeamByID(goglist, id):
+            findteam = None
+            for t in goglist:
+                if t.ID == id:
+                    findteam = t
+                    break
+            return findteam
 
-            for objid, objtype, objpos, objmovevector in og['objs']:
-                existobj = None
-                for i in oldobjs:
-                    if i.ID == objid:
-                        existobj = i
-                        break
+        self.frameinfo.update(loadlist['frameinfo'])
 
-                #existobj = oldobjs.findObjByID(objid)
-                if existobj:
-                    oriog.append(existobj)
-                    existobj.updateObj(dict(
-                        pos=Vector2(*objpos),
-                        movevector=Vector2(*objmovevector),
-                        group=oriog
-                    ))
-                else:
-                    argsdict = dict(
-                        objtype=objtype,
-                        pos=Vector2(*objpos),
-                        movevector=Vector2(*objmovevector),
-                        group=oriog,
-                        shapefn=ShootingGameObject.ShapeChange_None,
-                    )
-                    o = ShootingGameObject().initialize(argsdict)
-                    oriog.append(o)
-
-                    rcs = oriog.rcsdict[o.objtype]
-                    if o.objtype in ['bounceball', 'supershield']:
-                        rcs = random.choice(rcs)
-                    o.loadResource(rcs)
-            return oriog
-
-        #self.dispgroup['objplayers'] = []
-        newgroup = []
+        oldgog = self.dispgroup['objplayers']
+        self.dispgroup['objplayers'] = []
         for og in loadlist['objplayers']:
-            oldgog = self.getTeamByID(og['id'])
-            if oldgog is None:
-                gog = makeGameObjectDisplayGroup(og)
-            else:
-                gog = updateGameObjectDisplayGroup(oldgog, og)
+            gog = makeGameObjectDisplayGroup(og)
 
-            # if gog.ID == self.myteam['teamid']:
-            #     gog.statistic["teamStartTime"] = self.myteam['teamStartTime']
-            newgroup.append(gog)
+            oldteam = getTeamByID(oldgog, gog.ID)
+            if oldteam is not None:
+                gog.statistic = oldteam.statistic
+                if oldteam.hasBounceBall() and gog.hasBounceBall():
+                    gog[0].fireTimeDict = oldteam[0].fireTimeDict
+                    gog[0].createdTime = oldteam[0].createdTime
+                    gog[0].lastAutoMoveTick = oldteam[0].lastAutoMoveTick
+                    gog[0].ID = oldteam[0].ID
 
-        self.dispgroup['objplayers'] = newgroup
+            self.dispgroup['objplayers'].append(gog)
 
         gog = makeGameObjectDisplayGroup(loadlist['effectObjs'])
         self.dispgroup['effectObjs'] = gog
@@ -616,14 +582,15 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         if cmd == 'teaminfo':
             teamname = cmdDict.get('teamname')
             teamid = cmdDict.get('teamid')
-            print 'joined', teamname, teamid, self.teams[teamname]
             self.myteam = {
                 'teamname': teamname,
                 'teamid': teamid,
                 'teamStartTime': self.thistick,
             }
+            print 'joined', teamname, teamid, self.teams[teamname]
+            print self.myteam
 
-    def makeClientAIAction(self, frameinfo):
+    def makeClientAIAction(self):
         # make AI action
         if self.myteam is None:
             return
@@ -635,7 +602,7 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
 
         aa.prepareActions(
             targets,
-            frameinfo['ThisFPS'],
+            self.frameinfo['ThisFPS'],
             self.thistick
         )
         actions = aa.SelectAction(targets, aa[0])
@@ -650,14 +617,14 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
             actions=actionjson,
         )
 
-    def doFPSlogic(self, frameinfo):
-        g_frameinfo.update(frameinfo)
-        self.thistick = frameinfo['thistime']
+    def doFPSlogic(self):
+        g_frameinfo.update(self.frameinfo)
+        self.thistick = self.frameinfo['thistime']
 
         self.processCmd()
+        self.makeClientAIAction()
         for gog in self.dispgroup['objplayers']:
             gog.AutoMoveByTime(self.thistick)
-        self.makeClientAIAction(frameinfo)
 
         self.dispgroup['backgroup'].AutoMoveByTime(self.thistick)
         for o in self.dispgroup['backgroup']:
