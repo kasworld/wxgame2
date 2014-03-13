@@ -27,7 +27,7 @@ import wx.grid
 import wx.lib.colourdb
 from euclid import Vector2
 #from wxgame2server import GameObjectGroup
-from wxgame2server import SpriteObj, random2pi, FPSlogicBase
+from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict
 from wxgame2server import getFrameTime, I32gzJsonPacket, putJson2Queue, ShootingGameMixin
 from wxgame2server import AI2 as GameObjectGroup
 #from wxgame2server import GameObjectGroup
@@ -270,7 +270,7 @@ class ShootingGameObject(SpriteObj):
             "afterremovefn": None,
             "afterremovefnarg": (),
         }
-        self.updateObj(argsdict)
+        updateDict(self, argsdict)
 
         self.baseCollisionCricle = self.collisionCricle
         self.registerAutoMoveFn(self.shapefn, [])
@@ -470,12 +470,13 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
             self.makeBkObj()
         )
 
-        #self.registerRepeatFn(self.prfps, 1)
+        self.registerRepeatFn(self.prfps, 1)
 
         self.myteam = None
 
     def prfps(self, repeatinfo):
         print 'fps:', self.statFPS
+        print 'qsize recv:', self.recvQueue.qsize(), 'send:', self.cmdQueue.qsize()
 
     def makeBkObj(self):
         return BackGroundSplite().initialize(dict(

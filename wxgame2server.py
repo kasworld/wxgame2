@@ -262,14 +262,11 @@ class I32gzJsonPacket(object):
 
 
 def updateDict(dest, src):
-    #print dest,src
     for k, v in src.iteritems():
         if isinstance(v, dict) and not isinstance(v, Storage):
             if k not in dest:
                 dest[k] = {}
             updateDict(dest[k], v)
-        if k in ['movefnargs', 'shapefnargs']:
-            dest.setdefault(k, {}).update(v)
         elif isinstance(v, Vector2):
             dest[k] = v.copy()
         else:
@@ -327,24 +324,11 @@ class SpriteObj(Storage):
     def loadDefaultByType(self, objtype):
         """ load default by type
         """
-        self.updateObj(
+        updateDict(
+            self,
             SpriteObj.typeDefaultDict.get(objtype, {})
         )
         return self
-
-    def updateObj(self, params):
-        """ update obj
-        """
-        updateDict(self, params)
-        return
-
-        for k, v in params.iteritems():
-            if k in ['movefnargs', 'shapefnargs']:
-                self.setdefault(k, {}).update(v)
-            elif k in ['movevector']:
-                self[k] = v.copy()
-            else:
-                self[k] = v
 
     def __str__(self):
         return '[{}:{}:{}: pos:{} mv:{}]'.format(
@@ -370,7 +354,7 @@ class SpriteObj(Storage):
 
     def initialize(self, params={}):
         self.loadDefaultByType(params.get('objtype'))
-        self.updateObj(params)
+        updateDict(self, params)
 
         #self.autoMoveFns = []
         self.registerAutoMoveFn(self.movefn, [])
@@ -523,6 +507,7 @@ class SpriteObj(Storage):
 
     def Move_FollowTarget(self, args):
         if self.movefnargs["targetobj"] is None:
+            #print self, 'no target'
             return
         self.enabled = self.movefnargs["targetobj"].enabled
         dur = (self.thistick - self.lastAutoMoveTick)
@@ -863,7 +848,7 @@ class GameObjectGroup(list):
 
     def AddTargetFiredBullet(self, startpos, tagetpos):
         o = SpriteObj().initialize(dict(
-            pos=startpos.copy(),
+            pos=startpos,
             movevector=Vector2.rect(1, (tagetpos - startpos).phase()),
             objtype="bullet",
             group=self,
@@ -874,7 +859,7 @@ class GameObjectGroup(list):
     def AddHommingBullet(self, startpos, target, expireFn=None):
         o = SpriteObj().initialize(dict(
             expireFn=expireFn,
-            pos=startpos.copy(),
+            pos=startpos,
             movevector=Vector2.rect(1, Vector2.phase(target.pos - startpos)),
             movefnargs={
                 "accelvector": Vector2(0.0, 0.0),
@@ -888,7 +873,7 @@ class GameObjectGroup(list):
 
     def AddTargetSuperBullet(self, startpos, tagetpos):
         o = SpriteObj().initialize(dict(
-            pos=startpos.copy(),
+            pos=startpos,
             movevector=Vector2.rect(1, Vector2.phase(tagetpos - startpos)),
             objtype="superbullet",
             group=self,
@@ -1025,7 +1010,8 @@ class GameObjectGroup(list):
                 src.fireTimeDict[act] = self.thistick
             else:
                 if act != 'doNothing':
-                    print "%s action %s overuse fail" % (self.teamname, act)
+                    #print "%s action %s overuse fail" % (self.teamname, act)
+                    pass
 
     def AutoMoveByTime(self, thistick):
         # change movevector , pos
@@ -1245,11 +1231,12 @@ class AI2(GameObjectGroup):
 
 class ShootingGameMixin(object):
     teams = {
-        'team0': {"AIClass": GameObjectGroup, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
+        #'team0': {"AIClass": GameObjectGroup, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
+        'team0': {"AIClass": AI2, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
         'team1': {"AIClass": AI2, "resource": "orange", "teamcolor": (0xff, 0x7f, 0x00)},
         'team2': {"AIClass": AI2, "resource": "purple", "teamcolor": (0xff, 0x00, 0xff)},
         'team3': {"AIClass": AI2, "resource": "grey", "teamcolor": (0x7f, 0x7f, 0x7f)},
-        'team4': {"AIClass": AI2, "resource": "red", "teamcolor": (0xff, 0x00, 0x00)},
+        'team4': {"AIClass": GameObjectGroup, "resource": "red", "teamcolor": (0xff, 0x00, 0x00)},
         'team5': {"AIClass": AI2, "resource": "yellow", "teamcolor": (0xff, 0xff, 0x00)},
         'team6': {"AIClass": AI2, "resource": "green", "teamcolor": (0x00, 0xff, 0x00)},
         'team7': {"AIClass": AI2, "resource": "blue", "teamcolor": (0x00, 0xff, 0xff)},
@@ -1347,7 +1334,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.makegroups()
 
         # server team
-        for tn in ['team0']:  # , 'team1', 'team2', 'team3']:
+        for tn in ['team0', 'team1' ]: #, 'team2', 'team3']:
             o = self.make1Team(tn, servermove=True)
             self.dispgroup['objplayers'].append(o)
 
@@ -1362,7 +1349,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
         print 'end init'
 
-        #self.registerRepeatFn(self.prfps, 1)
+        self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
         print 'objs:', self.statObjN
@@ -1370,6 +1357,8 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         print 'packetlen:', self.statPacketL
         print 'fps:', self.frameinfo['stat']
         self.diaplayScore()
+        for n, v in self.clientCommDict['clients'].iteritems():
+            print 'queue size', n, v['cmds'].qsize()
 
     def diaplayScore(self):
         teamscore = {}
