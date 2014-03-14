@@ -12,6 +12,41 @@ wxpython을 사용해서 게임을 만들기위한 프레임웍과 테스트용 
 collision은 원형: 현재 프레임의 위치만을 기준으로 검출한다.
 모든? action은 frame 간의 시간차에 따라 보정 된다.
 문제점은 frame간에 지나가 버린 경우 이동 루트상으론 collision 이 일어나야 하지만 검출 불가.
+
+C/S protocol
+zlib compressed json : Vector2 => (x, y)
+connect
+Server recv fake (client queue)
+{
+    cmd : make
+    teamname : teamname
+}
+after team create
+server send to client
+{
+    'cmd': 'teaminfo',
+    'teamname': self.teamname,
+    'teamid': teamid
+}
+loop
+client send
+{
+    cmd='reqState',
+}
+server send state
+{
+    'cmd': 'gamestate',
+    'frameinfo': {k: v for k, v in self.frameinfo.iteritems() if k not in ['stat']},
+    'objplayers': [og.serialize() for og in self.dispgroup['objplayers']],
+    'effectObjs': self.dispgroup['effectObjs'].serialize()
+}
+client send
+{
+    cmd='act',
+    team=self.myteam,
+    actions=actionjson,
+}
+loop end
 """
 Version = '2.1.0'
 import time
@@ -222,8 +257,11 @@ class I32gzJsonPacket(object):
         return sum([len(a) for a in self.recvdata])
 
     def recvData(self, toreceivelen):
-        while self.recvedLen() < toreceivelen and not self.quit:
-            self.recvdata.append(self.sock.recv(toreceivelen))
+        while not self.quit and self.recvedLen() < toreceivelen:
+            rdata = self.sock.recv(toreceivelen)
+            if rdata == '':
+                raise RuntimeError("socket connection broken")
+            self.recvdata.append(rdata)
         totdata = ''.join(self.recvdata)
         rtn = totdata[:toreceivelen]
         self.recvdata = [totdata[toreceivelen:]]
@@ -236,25 +274,13 @@ class I32gzJsonPacket(object):
         return bodydata
 
     def recvJson(self):
-        try:
-            gzjson = self.recvPacket()
-            jsondata = zlib.decompress(gzjson)
-            rtn = json.loads(jsondata)
-        except socket.timeout:
-            return None
-        except socket.error as msg:
-            print msg
-            return None
-        except zlib.error:
-            print 'zlib decompress fail'
-            return None
-        except ValueError:
-            print 'decode fail'
-            return None
-        except:
-            print traceback.format_exc()
-            return
+        gzjson = self.recvPacket()
+        jsondata = zlib.decompress(gzjson)
+        rtn = json.loads(jsondata)
         return rtn
+
+    def pushback(self, data):
+        self.recvdata.insert(0, data)
 
     def finish(self):
         self.quit = True
@@ -485,6 +511,8 @@ class SpriteObj(Storage):
 
     def Move_Circle(self, args):
         dur = (self.thistick - self.lastAutoMoveTick)
+        if dur == 0:
+            return
         self.movevector = (
             self.pos.rotate(Vector2(0.5, 0.5), - dur * self.movefnargs["anglespeed"]
                             ) - self.pos) / dur
@@ -500,6 +528,8 @@ class SpriteObj(Storage):
         if not self.enabled:
             return
         dur = (self.thistick - self.lastAutoMoveTick)
+        if dur == 0:
+            return
         self.movefnargs["diffvector"] = self.movefnargs["diffvector"].rotate(
             Vector2(0, 0), self.movefnargs["anglespeed"] * dur)
         self.movevector = (self.movefnargs[
@@ -507,7 +537,7 @@ class SpriteObj(Storage):
 
     def Move_FollowTarget(self, args):
         if self.movefnargs["targetobj"] is None:
-            #print self, 'no target'
+            # print self, 'no target'
             return
         self.enabled = self.movefnargs["targetobj"].enabled
         dur = (self.thistick - self.lastAutoMoveTick)
@@ -983,7 +1013,7 @@ class GameObjectGroup(list):
         if actions is None:
             return
         if not self.hasBounceBall():
-            #print 'No bounceBall'
+            # print 'No bounceBall'
             return
         src = self[0]
         for act, actargs in actions:
@@ -1010,7 +1040,7 @@ class GameObjectGroup(list):
                 src.fireTimeDict[act] = self.thistick
             else:
                 if act != 'doNothing':
-                    #print "%s action %s overuse fail" % (self.teamname, act)
+                    # print "%s action %s overuse fail" % (self.teamname, act)
                     pass
 
     def AutoMoveByTime(self, thistick):
@@ -1237,9 +1267,9 @@ class ShootingGameMixin(object):
         'team2': {"AIClass": AI2, "resource": "purple", "teamcolor": (0xff, 0x00, 0xff)},
         'team3': {"AIClass": AI2, "resource": "grey", "teamcolor": (0x7f, 0x7f, 0x7f)},
         'team4': {"AIClass": GameObjectGroup, "resource": "red", "teamcolor": (0xff, 0x00, 0x00)},
-        'team5': {"AIClass": AI2, "resource": "yellow", "teamcolor": (0xff, 0xff, 0x00)},
-        'team6': {"AIClass": AI2, "resource": "green", "teamcolor": (0x00, 0xff, 0x00)},
-        'team7': {"AIClass": AI2, "resource": "blue", "teamcolor": (0x00, 0xff, 0xff)},
+        'team5': {"AIClass": GameObjectGroup, "resource": "yellow", "teamcolor": (0xff, 0xff, 0x00)},
+        'team6': {"AIClass": GameObjectGroup, "resource": "green", "teamcolor": (0x00, 0xff, 0x00)},
+        'team7': {"AIClass": GameObjectGroup, "resource": "blue", "teamcolor": (0x00, 0xff, 0xff)},
     }
 
     def getTeamByID(self, id):
@@ -1334,7 +1364,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.makegroups()
 
         # server team
-        for tn in ['team0', 'team1' ]: #, 'team2', 'team3']:
+        for tn in ['team0', 'team1']:  # , 'team2', 'team3']:
             o = self.make1Team(tn, servermove=True)
             self.dispgroup['objplayers'].append(o)
 
@@ -1358,7 +1388,8 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         print 'fps:', self.frameinfo['stat']
         self.diaplayScore()
         for n, v in self.clientCommDict['clients'].iteritems():
-            print 'queue size', n, v['cmds'].qsize()
+            if v is not None:
+                print 'queue ', n, 'recv', v['recvQueue'].qsize(), 'send', v['sendQueue'].qsize()
 
     def diaplayScore(self):
         teamscore = {}
@@ -1478,17 +1509,18 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         for n, v in self.clientCommDict['clients'].iteritems():
             if v is None:
                 continue
-            cmdDict = None
-            try:
-                cmdDict = v['cmds'].get_nowait()
-            except Queue.Empty:
-                continue
-            except:
-                print traceback.format_exc()
-                continue
-            if cmdDict is None:
-                continue
-            self.do1ClientCmd(n, v, cmdDict)
+            while not v['recvQueue'].empty():
+                cmdDict = None
+                try:
+                    cmdDict = v['recvQueue'].get_nowait()
+                except Queue.Empty:
+                    break
+                except:
+                    print traceback.format_exc()
+                    break
+                if cmdDict is None:
+                    break
+                self.do1ClientCmd(n, v, cmdDict)
 
     def do1ClientCmd(self, n, v, cmdDict):
         cmd = cmdDict.get('cmd')
@@ -1498,11 +1530,26 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             self.dispgroup['objplayers'].append(o)
             v['teamid'] = o.ID
             print tn, 'team made', o.ID
-        if cmd == 'del':
+
+            senddata = zlib.compress(json.dumps({
+                'cmd': 'teaminfo',
+                'teamname': tn,
+                'teamid': o.ID
+            }))
+
+            v['sendQueue'].put(senddata)
+
+        elif cmd == 'del':
             print 'del team', v['teamid']
             self.delTeamByID(v['teamid'])
             self.clientCommDict['clients'][n] = None
-        if cmd == 'act':
+
+        elif cmd == 'reqState':
+            v['sendQueue'].put(self.clientCommDict['gameState'])
+
+        elif cmd == 'act':
+            v['sendQueue'].put(self.clientCommDict['gameState'])
+
             actions = cmdDict.get('actions')
             tid = cmdDict['team']['teamid']
             to = self.getTeamByID(tid)
@@ -1575,10 +1622,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.statPacketL.update(self.saveState())
 
     def doGame(self):
-        while True:
-            # for t in self.dispgroup['objplayers']:
-            #     if t.hasBounceBall():
-            #         print t[0]
+        while not self.clientCommDict['quit']:
             self.FPSTimer(0)
             time.sleep(self.newdur / 1000.)
 
@@ -1602,70 +1646,67 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
         self.protocol = I32gzJsonPacket(self.request)
         self.quit = False
         self.clientCommDict['clients'][self.teamname] = {
-            'cmds': Queue.Queue()
+            'recvQueue': Queue.Queue(),
+            'sendQueue': Queue.Queue(),
         }
+
+        self.sendQueue = self.clientCommDict[
+            'clients'][self.teamname]['sendQueue']
+        self.recvQueue = self.clientCommDict[
+            'clients'][self.teamname]['recvQueue']
+
         putJson2Queue(
-            self.clientCommDict['clients'][self.teamname]['cmds'],
+            self.recvQueue,
             cmd='make',
             teamname=self.teamname
         )
 
-    def recvCmd(self):
-        clientaction = self.protocol.recvJson()
-        if clientaction is None:
-            return ''
-        try:
-            self.clientCommDict['clients'][
-                self.teamname]['cmds'].put(clientaction)
-        except Queue.Full:
-            print 'queue full'
-            return 'queue full'
-        return 'OK'
-
-    def sendState(self):
-        try:
-            senddata = self.clientCommDict['gameState']
-            self.protocol.sendPacket(senddata)
-        except socket.timeout:
-            return 'timeout'
-        except socket.error as msg:
-            print msg
-            return 'socket error'
-        return 'OK'
-
-    def sendInfo(self):
-        teamid = None
-        while teamid is None:
-            time.sleep(0)
-            teamid = self.clientCommDict[
-                'clients'][self.teamname].get('teamid')
-
-        senddata = {
-            'cmd': 'teaminfo',
-            'teamname': self.teamname,
-            'teamid': teamid
-        }
-        try:
-            self.protocol.sendJson(senddata)
-        except socket.timeout:
-            return 'timeout'
-        except socket.error as msg:
-            print msg
-            return 'socket error'
-        return 'OK'
-
     def handle(self):
         if self.setuped is not True:
             return
-
-        if self.sendInfo() != 'OK':
-            return
-
         while self.quit is not True:
-            if self.sendState() in ['socket error']:
-                break
-            if self.recvCmd() in ['socket error']:
-                break
+            if not self.sendQueue.empty():
+                try:
+                    cmd = self.sendQueue.get_nowait()
+                    self.protocol.sendPacket(cmd)
+                except Queue.Empty:
+                    print 'queue empty'
+                    continue
+                except socket.timeout as msg:
+                    print 'send', msg
+                except socket.error as msg:
+                    print 'send', msg
+                    break
+                except:
+                    print traceback.format_exc()
+                    break
+            else:
+                try:
+                    rdata = self.protocol.recvJson()
+                    self.recvQueue.put(rdata)
+                except Queue.Full:
+                    print 'queue full'
+                except socket.timeout as msg:
+                    print 'recv', msg
+                except socket.error as msg:
+                    print 'recv', msg
+                    break
+                except zlib.error:
+                    print 'zlib decompress fail'
+                    break
+                except RuntimeError as msg:
+                    print msg
+                    break
+                except ValueError:
+                    print 'decode fail'
+                    break
+                except:
+                    print traceback.format_exc()
+                    break
+
+        print 'exiting handle, disconnecting'
+        # self.protocol.sock.shutdown(socket.SHUT_RDWR)
+        self.request.close()
 
     def finish(self):
         if self.setuped is not True:
@@ -1673,11 +1714,13 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
 
         self.protocol.finish()
         self.quit = True
+        self.request.close()
+
         print 'client disconnected', self.client_address, self.teamname
 
         self.clientCommDict['FreeTeamList'].put(self.teamname)
         putJson2Queue(
-            self.clientCommDict['clients'][self.teamname]['cmds'],
+            self.recvQueue,
             cmd='del'
         )
 
@@ -1686,7 +1729,15 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     allow_reuse_address = True
 
 
-def runService(connectTo, clientCommDict):
+def runService(connectTo):
+    clientCommDict = {
+        'gameState': '',
+        'FreeTeamList': Queue.Queue(),
+        'clients': {},
+        'quit': False
+    }
+    print 'Server start, ', connectTo
+
     server = ThreadedTCPServer(connectTo, ClientConnectedThread)
     server.clientCommDict = clientCommDict
     server_thread = threading.Thread(target=server.serve_forever)
@@ -1694,35 +1745,18 @@ def runService(connectTo, clientCommDict):
 
     def sigstophandler(signum, frame):
         print 'User Termination'
+        clientCommDict['quit'] = True
         server.shutdown()
         server_thread.join(1)
+        print 'server end'
         sys.exit(0)
+
     signal.signal(signal.SIGINT, sigstophandler)
+
+    ShootingGameServer(clientCommDict=clientCommDict).doGame()
+
 # ================ tcp server end =======
 
 
 if __name__ == "__main__":
-    """
-    self.clientCommDict = {
-        'gameState': '',
-        'clients': {
-            'teamname' :{
-                'cmds': Queue,
-                    # { cmd: make , teamname: teamname }
-                    # { cmd: del }
-                    # { cmd: act , actions: actions }
-                'teamid' : team.ID
-            }
-        }
-    }
-    """
-    clientCommDict = {
-        'gameState': '',
-        'FreeTeamList': Queue.Queue(),
-        'GameCmds': Queue.Queue(),
-        'clients': {}
-    }
-    connectTo = "0.0.0.0", 22517
-    print 'Server start, ', connectTo
-    runService(connectTo, clientCommDict)
-    ShootingGameServer(clientCommDict=clientCommDict).doGame()
+    runService(("0.0.0.0", 22517))

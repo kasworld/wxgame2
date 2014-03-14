@@ -22,6 +22,7 @@ import socket
 import signal
 import threading
 import Queue
+import zlib
 import wx
 import wx.grid
 import wx.lib.colourdb
@@ -384,56 +385,63 @@ class GameObjectDisplayGroup(GameObjectGroup):
 class TCPGameClient(threading.Thread):
 
     def __init__(self, connectTo, queues):
-        self.recvQueue, self.cmdQueue = queues
+        self.recvQueue, self.sendQueue = queues
         self.quit = False
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(connectTo)
         self.protocol = I32gzJsonPacket(sock)
 
-    def recvCmd(self):
-        try:
-            rdata = self.protocol.recvJson()
-        except socket.timeout:
-            return 'timeout'
-        except socket.error as msg:
-            print msg
-            return 'socket error'
-        try:
-            self.recvQueue.put(rdata)
-        except Queue.Full:
-            print 'queue full'
-            return 'queue full'
-        return 'OK'
-
-    def sendCmd(self):
-        try:
-            cmd = self.cmdQueue.get_nowait()
-        except Queue.Empty:
-            return 'queue empty'
-        if cmd == 'QUIT':
-            self.shutdown()
-            return 'QUIT'
-        try:
-            self.protocol.sendJson(cmd)
-        except socket.timeout:
-            return 'timeout'
-        except socket.error as msg:
-            print msg
-            return 'socket error'
-        return 'OK'
-
     def clientLoop(self):
         while self.quit is not True:
-            if self.recvCmd() in ['socket error']:
-                break
-            if self.sendCmd() in ['socket error', 'QUIT']:
-                break
+            if not self.sendQueue.empty():
+                try:
+                    cmd = self.sendQueue.get_nowait()
+                    self.protocol.sendJson(cmd)
+                except Queue.Empty:
+                    print 'queue empty'
+                    break
+                except socket.timeout as msg:
+                    print 'send', msg
+                except socket.error as msg:
+                    print 'send', msg
+                    break
+                except ValueError:
+                    print 'encode fail'
+                    break
+                except:
+                    print traceback.format_exc()
+                    break
+            else:
+                try:
+                    rdata = self.protocol.recvJson()
+                    self.recvQueue.put(rdata)
+                except Queue.Full:
+                    print 'queue full'
+                except socket.timeout as msg:
+                    print 'recv', msg
+                except socket.error as msg:
+                    print 'recv', msg
+                    break
+                except zlib.error:
+                    print 'zlib decompress fail'
+                    break
+                except RuntimeError as msg:
+                    print msg
+                    break
+                except ValueError:
+                    print 'decode fail'
+                    break
+                except:
+                    print traceback.format_exc()
+                    break
 
+        #self.protocol.sock.shutdown(socket.SHUT_RDWR)
         self.protocol.sock.close()
 
     def shutdown(self):
         self.protocol.finish()
         self.quit = True
+        self.protocol.sock.close()
 
 
 def runService(connectTo, queues):
@@ -457,7 +465,7 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         self.dispgroup['objplayers'] = []
 
     def __init__(self, *args, **kwds):
-        self.recvQueue, self.cmdQueue = kwds.pop('queues')
+        self.recvQueue, self.sendQueue = kwds.pop('queues')
         wx.Control.__init__(self, *args, **kwds)
         self.Bind(wx.EVT_PAINT, self._OnPaint)
         self.Bind(wx.EVT_SIZE, self._OnSize)
@@ -476,7 +484,7 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
 
     def prfps(self, repeatinfo):
         print 'fps:', self.statFPS
-        print 'qsize recv:', self.recvQueue.qsize(), 'send:', self.cmdQueue.qsize()
+        print 'qsize recv:', self.recvQueue.qsize(), 'send:', self.sendQueue.qsize()
 
     def makeBkObj(self):
         return BackGroundSplite().initialize(dict(
@@ -490,7 +498,6 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         keycode = evt.GetKeyCode()
         if keycode == wx.WXK_ESCAPE:
             self.framewindow.Close()
-            # self.cmdQueue.put('QUIT')
 
     def _OnSize(self, evt):
         self.clientsize = self.GetClientSize()
@@ -559,37 +566,7 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
 
         gog = makeGameObjectDisplayGroup(loadlist['effectObjs'])
         self.dispgroup['effectObjs'] = gog
-
         return
-
-    def processCmd(self):
-        try:
-            cmdDict = self.recvQueue.get_nowait()
-            if cmdDict is None:
-                return
-        except Queue.Empty:
-            return
-        except:
-            print traceback.format_exc()
-            return
-        cmd = cmdDict.get('cmd')
-        if cmd == 'gamestate':
-            try:
-                self.applyState(cmdDict)
-            except:
-                print traceback.format_exc()
-                return
-
-        if cmd == 'teaminfo':
-            teamname = cmdDict.get('teamname')
-            teamid = cmdDict.get('teamid')
-            self.myteam = {
-                'teamname': teamname,
-                'teamid': teamid,
-                'teamStartTime': self.thistick,
-            }
-            print 'joined', teamname, teamid, self.teams[teamname]
-            print self.myteam
 
     def makeClientAIAction(self):
         # make AI action
@@ -612,18 +589,48 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         # print actions, actionjson
 
         putJson2Queue(
-            self.cmdQueue,
+            self.sendQueue,
             cmd='act',
             team=self.myteam,
             actions=actionjson,
         )
+
+    def processCmd(self):
+
+        while not self.recvQueue.empty():
+            try:
+                cmdDict = self.recvQueue.get_nowait()
+                if cmdDict is None:
+                    break
+            except Queue.Empty:
+                break
+            except:
+                print traceback.format_exc()
+                break
+            cmd = cmdDict.get('cmd')
+            if cmd == 'gamestate':
+                self.applyState(cmdDict)
+                self.makeClientAIAction()
+            elif cmd == 'teaminfo':
+                teamname = cmdDict.get('teamname')
+                teamid = cmdDict.get('teamid')
+                self.myteam = {
+                    'teamname': teamname,
+                    'teamid': teamid,
+                    'teamStartTime': self.thistick,
+                }
+                print 'joined', teamname, teamid, self.teams[teamname]
+                print self.myteam
+                putJson2Queue(
+                    self.sendQueue,
+                    cmd='reqState',
+                )
 
     def doFPSlogic(self):
         g_frameinfo.update(self.frameinfo)
         self.thistick = self.frameinfo['thistime']
 
         self.processCmd()
-        self.makeClientAIAction()
         for gog in self.dispgroup['objplayers']:
             gog.AutoMoveByTime(self.thistick)
 
@@ -675,11 +682,11 @@ def runtest():
         destip = sys.argv[1]
     else:
         destip = 'localhost'
-    (recvQueue, cmdQueue) = Queue.Queue(), Queue.Queue()
+    (recvQueue, sendQueue) = Queue.Queue(), Queue.Queue()
 
     connectTo = destip, 22517
     print 'Client start, ', connectTo
-    client, client_thread = runService(connectTo, (recvQueue, cmdQueue))
+    client, client_thread = runService(connectTo, (recvQueue, sendQueue))
 
     def sigstophandler(signum, frame):
         print 'User Termination'
@@ -691,7 +698,7 @@ def runtest():
     app = wx.App()
     frame_1 = MyFrame(
         None, -1, "", size=(1000, 1000),
-        queues= (recvQueue, cmdQueue))
+        queues= (recvQueue, sendQueue))
     app.SetTopWindow(frame_1)
     frame_1.Show()
     app.MainLoop()
