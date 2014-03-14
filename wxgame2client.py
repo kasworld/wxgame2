@@ -18,6 +18,7 @@ import traceback
 import os
 import os.path
 import sys
+import select
 import socket
 import signal
 import threading
@@ -401,7 +402,8 @@ class TCPGameClient(threading.Thread):
                     print 'queue empty'
                     break
                 except socket.timeout as msg:
-                    print 'send', msg
+                    #print 'send', msg
+                    pass
                 except socket.error as msg:
                     print 'send', msg
                     break
@@ -418,7 +420,8 @@ class TCPGameClient(threading.Thread):
                 except Queue.Full:
                     print 'queue full'
                 except socket.timeout as msg:
-                    print 'recv', msg
+                    #print 'recv', msg
+                    pass
                 except socket.error as msg:
                     print 'recv', msg
                     break

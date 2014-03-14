@@ -64,9 +64,11 @@ import signal
 import threading
 import SocketServer
 import Queue
+import select
 import socket
 import traceback
 import struct
+
 from euclid import Vector2
 # ======== game lib ============
 getSerial = itertools.count().next
@@ -241,9 +243,10 @@ class I32gzJsonPacket(object):
 
     def __init__(self, sock):
         self.sock = sock
-        self.sock.settimeout(0.1)
+        self.sock.settimeout(1.0/120)
         self.quit = False
         self.recvdata = []
+        self.recvstate = 'newpacket'
 
     def sendPacket(self, data):
         self.sock.sendall(self.headerStruct.pack(len(data)))
@@ -270,7 +273,11 @@ class I32gzJsonPacket(object):
     def recvPacket(self):
         header = self.recvData(self.headerLen)
         bodylen = self.headerStruct.unpack(header)[0]
-        bodydata = self.recvData(bodylen)
+        try:
+            bodydata = self.recvData(bodylen)
+        except socket.timeout:
+            self.pushback(header)
+            raise socket.timeout
         return bodydata
 
     def recvJson(self):
@@ -1673,7 +1680,8 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
                     print 'queue empty'
                     continue
                 except socket.timeout as msg:
-                    print 'send', msg
+                    #print 'send', msg
+                    pass
                 except socket.error as msg:
                     print 'send', msg
                     break
@@ -1687,7 +1695,8 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
                 except Queue.Full:
                     print 'queue full'
                 except socket.timeout as msg:
-                    print 'recv', msg
+                    #print 'recv', msg
+                    pass
                 except socket.error as msg:
                     print 'recv', msg
                     break
