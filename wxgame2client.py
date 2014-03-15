@@ -18,19 +18,18 @@ import traceback
 import os
 import os.path
 import sys
-import select
 import socket
 import signal
+import time
 import threading
 import Queue
-import zlib
 import wx
 import wx.grid
 import wx.lib.colourdb
 from euclid import Vector2
 #from wxgame2server import GameObjectGroup
-from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict, toGzJson, fromGzJson
-from wxgame2server import getFrameTime, I32gzJsonPacket, putParams2Queue, ShootingGameMixin, I32sendrecv
+from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict, fromGzJson
+from wxgame2server import getFrameTime, putParams2Queue, ShootingGameMixin, I32sendrecv, Statistics
 from wxgame2server import AI2 as GameObjectGroup
 #from wxgame2server import GameObjectGroup
 # ======== game lib ============
@@ -395,15 +394,19 @@ class TCPGameClient(threading.Thread):
             self.sendQueue,
             sock
         )
+        self.stat = Statistics()
+        self.oldtime = time.time()
 
     def clientLoop(self):
         while self.quit is not True:
             self.protocol.sendrecv()
+            self.stat.update(time.time() - self.oldtime)
 
         # self.protocol.sock.shutdown(socket.SHUT_RDWR)
         self.protocol.sock.close()
 
     def shutdown(self):
+        print 'netloop ms', self.stat
         self.quit = True
         self.protocol.sock.close()
 

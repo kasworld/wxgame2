@@ -1430,11 +1430,11 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
-        # print 'objs:', self.statObjN
-        # print 'cmps:', self.statCmpN
-        # print 'packetlen:', self.statPacketL
-        # print 'fps:', self.frameinfo['stat']
-        # self.diaplayScore()
+        print 'objs:', self.statObjN
+        print 'cmps:', self.statCmpN
+        print 'packetlen:', self.statPacketL
+        print 'fps:', self.frameinfo['stat']
+        self.diaplayScore()
         for n, v in self.clientCommDict['clients'].iteritems():
             if v is not None:
                 print 'queue ', n, 'recv', v['recvQueue'].qsize(), 'send', v['sendQueue'].qsize()
@@ -1714,6 +1714,8 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
             cmd='make',
             teamname=self.teamname
         )
+        self.stat = Statistics()
+        self.oldtime = time.time()
 
     def handle(self):
         if self.setuped is not True:
@@ -1721,8 +1723,7 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
 
         while self.quit is not True:
             self.protocol.sendrecv()
-
-        print 'exiting handle'
+            self.stat.update(time.time() - self.oldtime)
 
     def finish(self):
         if self.setuped is not True:
@@ -1732,6 +1733,7 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
         self.request.close()
 
         print 'client disconnected', self.client_address, self.teamname
+        print 'netloop ms', self.stat
 
         self.server.clientCommDict['FreeTeamList'].put(self.teamname)
         putParams2Queue(
