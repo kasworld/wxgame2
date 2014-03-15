@@ -243,7 +243,7 @@ class I32gzJsonPacket(object):
 
     def __init__(self, sock):
         self.sock = sock
-        self.sock.settimeout(1.0/120)
+        self.sock.settimeout(1.0 / 120)
         self.quit = False
         self.recvdata = []
         self.recvstate = 'newpacket'
@@ -291,6 +291,76 @@ class I32gzJsonPacket(object):
 
     def finish(self):
         self.quit = True
+
+
+class I32sendrecv(object):
+
+    """
+    recv 32bit len packet to recvQueue
+    send 32bit len packet from sendQueue
+    """
+    headerStruct = struct.Struct('!I')
+    headerLen = struct.calcsize('!I')
+
+    def __init__(self, recvQueue, sendQueue, sock):
+        self.recvQueue = recvQueue
+        self.sendQueue = sendQueue
+        self.sock = sock
+        self.readbuf = []  # memorybuf, toreadlen , buf state
+        self.writebuf = []  # memorybuf, towritelen
+
+    def recv(self):
+        """ async recv
+        recv completed packet is put to recv packet
+        """
+        if self.recvQueue.full():
+            return  # recv queue full
+        if self.readbuf == []:  # read header
+            self.readbuf = [
+                bytearray(self.headerLen), self.headerLen, 'header']
+
+        view = memoryview(self.readbuf[0][:-self.readbuf[1]])
+        nbytes = self.sock.recv_into(view, self.readbuf[1])
+        if nbytes == 0:
+            raise RuntimeError("socket connection broken")
+        self.readbuf[1] -= nbytes
+
+        if self.readbuf[1] == 0:  # complete recv
+            if self.readbuf[2] == 'header':
+                bodylen = self.headerStruct.unpack(self.readbuf[0])[0]
+                self.readbuf = [
+                    bytearray(bodylen), bodylen, 'body']
+            elif self.readbuf[2] == 'body':
+                # jsondata = zlib.decompress(self.readbuf[0])
+                # rtn = json.loads(jsondata)
+                # self.recvQueue.put(rtn)
+                self.recvQueue.put(self.readbuf[0])
+                self.readbuf == []
+            else:
+                pass  # unknown error
+
+    def send(self):
+        if self.sendQueue.empty():
+            return  # send queue empty
+        if self.writebuf == []:  # send new packet
+            tosenddata = self.sendQueue.get()
+            headerdata = self.headerStruct.pack(len(tosenddata))
+            self.writebuf = [[headerdata, 0], [tosenddata, 0]]
+        wdata = self.writebuf[0]
+        sentlen = self.sock.send(wdata[0][wdata[1]:])
+        wdata[1] += sentlen
+        if len(wdata[0]) == wdata[1]:  # complete send
+            del self.writebuf[0]
+
+    def sendrecv(self):
+        inputready, outputready, exceptready = select.select(
+            [self.sock], [self.sock], [], 1.0 / 60)
+        for s in inputready:
+            self.recv()
+        for s in outputready:
+            self.send()
+
+
 # ======== game lib end ============
 
 
@@ -389,7 +459,7 @@ class SpriteObj(Storage):
         self.loadDefaultByType(params.get('objtype'))
         updateDict(self, params)
 
-        #self.autoMoveFns = []
+        # self.autoMoveFns = []
         self.registerAutoMoveFn(self.movefn, [])
         self.registerAutoMoveFn(SpriteObj.Move_byMoveVector, [])
         self.registerAutoMoveFn(self.wallactionfn, [])
@@ -1680,7 +1750,7 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
                     print 'queue empty'
                     continue
                 except socket.timeout as msg:
-                    #print 'send', msg
+                    # print 'send', msg
                     pass
                 except socket.error as msg:
                     print 'send', msg
@@ -1695,7 +1765,7 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
                 except Queue.Full:
                     print 'queue full'
                 except socket.timeout as msg:
-                    #print 'recv', msg
+                    # print 'recv', msg
                     pass
                 except socket.error as msg:
                     print 'recv', msg
@@ -1728,6 +1798,66 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
         print 'client disconnected', self.client_address, self.teamname
 
         self.clientCommDict['FreeTeamList'].put(self.teamname)
+        putJson2Queue(
+            self.recvQueue,
+            cmd='del'
+        )
+
+class ClientConnectedThread2(SocketServer.BaseRequestHandler):
+
+    def setup(self):
+        try:
+            self.teamname = self.server.clientCommDict['FreeTeamList'].get_nowait()
+        except Queue.Empty:
+            # self.request.close()
+            print 'no more team'
+            self.setuped = False
+            return
+        self.setuped = True
+
+        print 'client connected', self.client_address, self.teamname
+        self.quit = False
+        self.server.clientCommDict['clients'][self.teamname] = {
+            'recvQueue': Queue.Queue(),
+            'sendQueue': Queue.Queue(),
+        }
+
+        self.sendQueue = self.server.clientCommDict[
+            'clients'][self.teamname]['sendQueue']
+        self.recvQueue = self.server.clientCommDict[
+            'clients'][self.teamname]['recvQueue']
+
+        self.protocol = I32sendrecv(
+            self.recvQueue,
+            self.sendQueue,
+            self.request
+            )
+
+        putJson2Queue(
+            self.recvQueue,
+            cmd='make',
+            teamname=self.teamname
+        )
+
+    def handle(self):
+        if self.setuped is not True:
+            return
+
+        while self.quit is not True:
+            self.protocol.sendrecv()
+
+        print 'exiting handle'
+
+    def finish(self):
+        if self.setuped is not True:
+            return
+
+        self.quit = True
+        self.request.close()
+
+        print 'client disconnected', self.client_address, self.teamname
+
+        self.server.clientCommDict['FreeTeamList'].put(self.teamname)
         putJson2Queue(
             self.recvQueue,
             cmd='del'
