@@ -82,8 +82,16 @@ def random2pi(m=2):
     return math.pi * m * (random.random() - 0.5)
 
 
-def putJson2Queue(qobj, **kwds):
-    qobj.put(kwds)
+def putParams2Queue(qobj, **kwds):
+    qobj.put(toGzJson(kwds))
+
+
+def toGzJson(obj):
+    return zlib.compress(json.dumps(obj))
+
+
+def fromGzJson(data):
+    return json.loads(zlib.decompress(data))
 
 
 class Storage(dict):
@@ -237,62 +245,6 @@ class FPSlogicBase(object):
         pass
 
 
-class I32gzJsonPacket(object):
-    headerStruct = struct.Struct('!I')
-    headerLen = struct.calcsize('!I')
-
-    def __init__(self, sock):
-        self.sock = sock
-        self.sock.settimeout(1.0 / 120)
-        self.quit = False
-        self.recvdata = []
-        self.recvstate = 'newpacket'
-
-    def sendPacket(self, data):
-        self.sock.sendall(self.headerStruct.pack(len(data)))
-        self.sock.sendall(data)
-
-    def sendJson(self, jsondata):
-        tosenddata = zlib.compress(json.dumps(jsondata))
-        self.sendPacket(tosenddata)
-
-    def recvedLen(self):
-        return sum([len(a) for a in self.recvdata])
-
-    def recvData(self, toreceivelen):
-        while not self.quit and self.recvedLen() < toreceivelen:
-            rdata = self.sock.recv(toreceivelen)
-            if rdata == '':
-                raise RuntimeError("socket connection broken")
-            self.recvdata.append(rdata)
-        totdata = ''.join(self.recvdata)
-        rtn = totdata[:toreceivelen]
-        self.recvdata = [totdata[toreceivelen:]]
-        return rtn
-
-    def recvPacket(self):
-        header = self.recvData(self.headerLen)
-        bodylen = self.headerStruct.unpack(header)[0]
-        try:
-            bodydata = self.recvData(bodylen)
-        except socket.timeout:
-            self.pushback(header)
-            raise socket.timeout
-        return bodydata
-
-    def recvJson(self):
-        gzjson = self.recvPacket()
-        jsondata = zlib.decompress(gzjson)
-        rtn = json.loads(jsondata)
-        return rtn
-
-    def pushback(self, data):
-        self.recvdata.insert(0, data)
-
-    def finish(self):
-        self.quit = True
-
-
 class I32sendrecv(object):
 
     """
@@ -309,6 +261,14 @@ class I32sendrecv(object):
         self.readbuf = []  # memorybuf, toreadlen , buf state
         self.writebuf = []  # memorybuf, towritelen
 
+    def __str__(self):
+        return '[{}:{}:{}:{}]'.format(
+            self.__class__.__name__,
+            self.sock,
+            self.readbuf,
+            self.writebuf,
+        )
+
     def recv(self):
         """ async recv
         recv completed packet is put to recv packet
@@ -317,44 +277,55 @@ class I32sendrecv(object):
             return  # recv queue full
         if self.readbuf == []:  # read header
             self.readbuf = [
-                bytearray(self.headerLen), self.headerLen, 'header']
+                memoryview(bytearray(self.headerLen)),
+                self.headerLen,
+                'header'
+            ]
 
-        view = memoryview(self.readbuf[0][:-self.readbuf[1]])
-        nbytes = self.sock.recv_into(view, self.readbuf[1])
+        nbytes = self.sock.recv_into(
+            self.readbuf[0][-self.readbuf[1]:], self.readbuf[1])
         if nbytes == 0:
             raise RuntimeError("socket connection broken")
+            pass
         self.readbuf[1] -= nbytes
 
         if self.readbuf[1] == 0:  # complete recv
             if self.readbuf[2] == 'header':
-                bodylen = self.headerStruct.unpack(self.readbuf[0])[0]
+                bodylen = self.headerStruct.unpack(
+                    self.readbuf[0].tobytes())[0]
                 self.readbuf = [
-                    bytearray(bodylen), bodylen, 'body']
+                    memoryview(bytearray(bodylen)),
+                    bodylen,
+                    'body'
+                ]
             elif self.readbuf[2] == 'body':
-                # jsondata = zlib.decompress(self.readbuf[0])
-                # rtn = json.loads(jsondata)
-                # self.recvQueue.put(rtn)
-                self.recvQueue.put(self.readbuf[0])
-                self.readbuf == []
+                self.recvQueue.put(self.readbuf[0].tobytes())
+                self.readbuf = []
             else:
+                print 'invalid recv state', self.readbuf[2]
                 pass  # unknown error
 
     def send(self):
-        if self.sendQueue.empty():
+        if self.sendQueue.empty() and len(self.writebuf) == 0:
             return  # send queue empty
-        if self.writebuf == []:  # send new packet
+        if len(self.writebuf) == 0:  # send new packet
             tosenddata = self.sendQueue.get()
             headerdata = self.headerStruct.pack(len(tosenddata))
-            self.writebuf = [[headerdata, 0], [tosenddata, 0]]
+            self.writebuf = [
+                [memoryview(headerdata), 0],
+                [memoryview(tosenddata), 0]
+            ]
         wdata = self.writebuf[0]
         sentlen = self.sock.send(wdata[0][wdata[1]:])
+        if sentlen == 0:
+            raise RuntimeError("socket connection broken")
         wdata[1] += sentlen
         if len(wdata[0]) == wdata[1]:  # complete send
             del self.writebuf[0]
 
     def sendrecv(self):
         inputready, outputready, exceptready = select.select(
-            [self.sock], [self.sock], [], 1.0 / 60)
+            [self.sock], [self.sock], [], 1.0)
         for s in inputready:
             self.recv()
         for s in outputready:
@@ -1459,11 +1430,11 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
-        print 'objs:', self.statObjN
-        print 'cmps:', self.statCmpN
-        print 'packetlen:', self.statPacketL
-        print 'fps:', self.frameinfo['stat']
-        self.diaplayScore()
+        # print 'objs:', self.statObjN
+        # print 'cmps:', self.statCmpN
+        # print 'packetlen:', self.statPacketL
+        # print 'fps:', self.frameinfo['stat']
+        # self.diaplayScore()
         for n, v in self.clientCommDict['clients'].iteritems():
             if v is not None:
                 print 'queue ', n, 'recv', v['recvQueue'].qsize(), 'send', v['sendQueue'].qsize()
@@ -1568,7 +1539,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
     def saveState(self):
         try:
-            savelist = zlib.compress(json.dumps(self.makeState()))
+            savelist = toGzJson(self.makeState())
             self.clientCommDict['gameState'] = savelist
         except zlib.error:
             print 'zlib compress fail'
@@ -1597,6 +1568,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                     break
                 if cmdDict is None:
                     break
+                cmdDict = fromGzJson(cmdDict)
                 self.do1ClientCmd(n, v, cmdDict)
 
     def do1ClientCmd(self, n, v, cmdDict):
@@ -1608,11 +1580,11 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             v['teamid'] = o.ID
             print tn, 'team made', o.ID
 
-            senddata = zlib.compress(json.dumps({
+            senddata = toGzJson({
                 'cmd': 'teaminfo',
                 'teamname': tn,
                 'teamid': o.ID
-            }))
+            })
 
             v['sendQueue'].put(senddata)
 
@@ -1709,105 +1681,9 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 class ClientConnectedThread(SocketServer.BaseRequestHandler):
 
     def setup(self):
-        self.clientCommDict = self.server.clientCommDict
         try:
-            self.teamname = self.clientCommDict['FreeTeamList'].get_nowait()
-        except Queue.Empty:
-            # self.request.close()
-            print 'no more team'
-            self.setuped = False
-            return
-        self.setuped = True
-
-        print 'client connected', self.client_address, self.teamname
-        self.protocol = I32gzJsonPacket(self.request)
-        self.quit = False
-        self.clientCommDict['clients'][self.teamname] = {
-            'recvQueue': Queue.Queue(),
-            'sendQueue': Queue.Queue(),
-        }
-
-        self.sendQueue = self.clientCommDict[
-            'clients'][self.teamname]['sendQueue']
-        self.recvQueue = self.clientCommDict[
-            'clients'][self.teamname]['recvQueue']
-
-        putJson2Queue(
-            self.recvQueue,
-            cmd='make',
-            teamname=self.teamname
-        )
-
-    def handle(self):
-        if self.setuped is not True:
-            return
-        while self.quit is not True:
-            if not self.sendQueue.empty():
-                try:
-                    cmd = self.sendQueue.get_nowait()
-                    self.protocol.sendPacket(cmd)
-                except Queue.Empty:
-                    print 'queue empty'
-                    continue
-                except socket.timeout as msg:
-                    # print 'send', msg
-                    pass
-                except socket.error as msg:
-                    print 'send', msg
-                    break
-                except:
-                    print traceback.format_exc()
-                    break
-            else:
-                try:
-                    rdata = self.protocol.recvJson()
-                    self.recvQueue.put(rdata)
-                except Queue.Full:
-                    print 'queue full'
-                except socket.timeout as msg:
-                    # print 'recv', msg
-                    pass
-                except socket.error as msg:
-                    print 'recv', msg
-                    break
-                except zlib.error:
-                    print 'zlib decompress fail'
-                    break
-                except RuntimeError as msg:
-                    print msg
-                    break
-                except ValueError:
-                    print 'decode fail'
-                    break
-                except:
-                    print traceback.format_exc()
-                    break
-
-        print 'exiting handle, disconnecting'
-        # self.protocol.sock.shutdown(socket.SHUT_RDWR)
-        self.request.close()
-
-    def finish(self):
-        if self.setuped is not True:
-            return
-
-        self.protocol.finish()
-        self.quit = True
-        self.request.close()
-
-        print 'client disconnected', self.client_address, self.teamname
-
-        self.clientCommDict['FreeTeamList'].put(self.teamname)
-        putJson2Queue(
-            self.recvQueue,
-            cmd='del'
-        )
-
-class ClientConnectedThread2(SocketServer.BaseRequestHandler):
-
-    def setup(self):
-        try:
-            self.teamname = self.server.clientCommDict['FreeTeamList'].get_nowait()
+            self.teamname = self.server.clientCommDict[
+                'FreeTeamList'].get_nowait()
         except Queue.Empty:
             # self.request.close()
             print 'no more team'
@@ -1831,9 +1707,9 @@ class ClientConnectedThread2(SocketServer.BaseRequestHandler):
             self.recvQueue,
             self.sendQueue,
             self.request
-            )
+        )
 
-        putJson2Queue(
+        putParams2Queue(
             self.recvQueue,
             cmd='make',
             teamname=self.teamname
@@ -1858,7 +1734,7 @@ class ClientConnectedThread2(SocketServer.BaseRequestHandler):
         print 'client disconnected', self.client_address, self.teamname
 
         self.server.clientCommDict['FreeTeamList'].put(self.teamname)
-        putJson2Queue(
+        putParams2Queue(
             self.recvQueue,
             cmd='del'
         )

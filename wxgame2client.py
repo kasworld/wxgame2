@@ -29,8 +29,8 @@ import wx.grid
 import wx.lib.colourdb
 from euclid import Vector2
 #from wxgame2server import GameObjectGroup
-from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict
-from wxgame2server import getFrameTime, I32gzJsonPacket, putJson2Queue, ShootingGameMixin
+from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict, toGzJson, fromGzJson
+from wxgame2server import getFrameTime, I32gzJsonPacket, putParams2Queue, ShootingGameMixin, I32sendrecv
 from wxgame2server import AI2 as GameObjectGroup
 #from wxgame2server import GameObjectGroup
 # ======== game lib ============
@@ -390,59 +390,20 @@ class TCPGameClient(threading.Thread):
         self.quit = False
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(connectTo)
-        self.protocol = I32gzJsonPacket(sock)
+        self.protocol = I32sendrecv(
+            self.recvQueue,
+            self.sendQueue,
+            sock
+        )
 
     def clientLoop(self):
         while self.quit is not True:
-            if not self.sendQueue.empty():
-                try:
-                    cmd = self.sendQueue.get_nowait()
-                    self.protocol.sendJson(cmd)
-                except Queue.Empty:
-                    print 'queue empty'
-                    break
-                except socket.timeout as msg:
-                    #print 'send', msg
-                    pass
-                except socket.error as msg:
-                    print 'send', msg
-                    break
-                except ValueError:
-                    print 'encode fail'
-                    break
-                except:
-                    print traceback.format_exc()
-                    break
-            else:
-                try:
-                    rdata = self.protocol.recvJson()
-                    self.recvQueue.put(rdata)
-                except Queue.Full:
-                    print 'queue full'
-                except socket.timeout as msg:
-                    #print 'recv', msg
-                    pass
-                except socket.error as msg:
-                    print 'recv', msg
-                    break
-                except zlib.error:
-                    print 'zlib decompress fail'
-                    break
-                except RuntimeError as msg:
-                    print msg
-                    break
-                except ValueError:
-                    print 'decode fail'
-                    break
-                except:
-                    print traceback.format_exc()
-                    break
+            self.protocol.sendrecv()
 
-        #self.protocol.sock.shutdown(socket.SHUT_RDWR)
+        # self.protocol.sock.shutdown(socket.SHUT_RDWR)
         self.protocol.sock.close()
 
     def shutdown(self):
-        self.protocol.finish()
         self.quit = True
         self.protocol.sock.close()
 
@@ -591,7 +552,7 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         actionjson = self.serializeActions(actions)
         # print actions, actionjson
 
-        putJson2Queue(
+        putParams2Queue(
             self.sendQueue,
             cmd='act',
             team=self.myteam,
@@ -610,6 +571,8 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
             except:
                 print traceback.format_exc()
                 break
+            cmdDict = fromGzJson(cmdDict)
+
             cmd = cmdDict.get('cmd')
             if cmd == 'gamestate':
                 self.applyState(cmdDict)
@@ -624,7 +587,7 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
                 }
                 print 'joined', teamname, teamid, self.teams[teamname]
                 print self.myteam
-                putJson2Queue(
+                putParams2Queue(
                     self.sendQueue,
                     cmd='reqState',
                 )
