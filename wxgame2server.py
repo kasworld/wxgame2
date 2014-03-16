@@ -307,7 +307,7 @@ class I32sendrecv(object):
 
     def send(self):
         if self.sendQueue.empty() and len(self.writebuf) == 0:
-            return  # send queue empty
+            return 'Nothing'  # send queue empty
         if len(self.writebuf) == 0:  # send new packet
             tosenddata = self.sendQueue.get()
             headerdata = self.headerStruct.pack(len(tosenddata))
@@ -322,6 +322,7 @@ class I32sendrecv(object):
         wdata[1] += sentlen
         if len(wdata[0]) == wdata[1]:  # complete send
             del self.writebuf[0]
+        return sentlen
 
     def sendrecv(self):
         inputready, outputready, exceptready = select.select(
@@ -331,6 +332,9 @@ class I32sendrecv(object):
         for s in outputready:
             self.send()
 
+    def fileno(self):
+        # for select
+        return self.sock
 
 # ======== game lib end ============
 
@@ -578,6 +582,7 @@ class SpriteObj(Storage):
         dur = (self.thistick - self.lastAutoMoveTick)
         if dur == 0:
             return
+
         self.movefnargs["diffvector"] = self.movefnargs["diffvector"].rotate(
             Vector2(0, 0), self.movefnargs["anglespeed"] * dur)
         self.movevector = (self.movefnargs[
@@ -585,10 +590,13 @@ class SpriteObj(Storage):
 
     def Move_FollowTarget(self, args):
         if self.movefnargs["targetobj"] is None:
-            # print self, 'no target'
             return
         self.enabled = self.movefnargs["targetobj"].enabled
+        if not self.enabled:
+            return
         dur = (self.thistick - self.lastAutoMoveTick)
+
+        print 'Move_FollowTarget', self, self.movefnargs["targetobj"]
         self.accelToPos(self.movefnargs["targetobj"].pos)
         mvlen = abs(self.movevector)
         self.movevector += self.movefnargs["accelvector"] * dur
@@ -779,7 +787,7 @@ class GameObjectGroup(list):
 
     def serialize(self):
         rtn = {
-            'id': self.ID,
+            'ID': self.ID,
             'teamname': self.teamname,
             'resource': self.resource,
             'objs': []
@@ -792,7 +800,7 @@ class GameObjectGroup(list):
         return rtn
 
     def deserialize(self, jsondict, objclass, classargsdict):
-        self.ID = jsondict['id']
+        self.ID = jsondict['ID']
         self.teamname = jsondict['teamname']
         self.resource = jsondict['resource']
         for objid, objtype, objpos, objmovevector in jsondict['objs']:
@@ -846,7 +854,8 @@ class GameObjectGroup(list):
             "teamname": "red",
             "teamcolor": "red",
             "resource": "red",
-            "servermove": True
+            "servermove": True,
+            'gameObj': None
         }
         self.setAttrs(defaultdict, kwds)
 
@@ -857,22 +866,15 @@ class GameObjectGroup(list):
     def hasBounceBall(self):
         return len(self) > 1 and self[0].objtype == "bounceball"
 
-    def findObjByID(self, id):
+    def findObjByID(self, ID):
         for o in self:
-            if o.ID == id:
+            if o.ID == ID:
                 return o
         return None
 
     def makeMember(self):
         if not self.hasBounceBall():
             self.addMember(Vector2(random.random(), random.random()))
-
-    def selectRandomBall(self, aimingtargetlist):
-        targetobjs = []
-        for a in aimingtargetlist:
-            if a.hasBounceBall():
-                targetobjs.append(a[0])
-        return random.choice(targetobjs) if targetobjs else None
 
     def addMember(self, newpos):
         self.statistic['act']['bounceball'] += 1
@@ -883,8 +885,7 @@ class GameObjectGroup(list):
         for i, a in enumerate(range(0, 360, 30)):
             self.AddShield(
                 target=target,
-                diffvector=Vector2(0.03, 0).addAngle(
-                    2 * math.pi * a / 360.0),
+                startangle=a,
                 anglespeed=math.pi if i % 2 == 0 else -math.pi
             )
         return target
@@ -899,7 +900,9 @@ class GameObjectGroup(list):
         self.insert(0, o)
         return o
 
-    def AddShield(self, target, diffvector, anglespeed):
+    def AddShield(self, target, startangle, anglespeed):
+        diffvector = Vector2(0.03, 0).addAngle(
+            2 * math.pi * startangle / 360.0)
         o = SpriteObj().initialize(dict(
             pos=target.pos + diffvector,
             movefnargs={
@@ -908,6 +911,22 @@ class GameObjectGroup(list):
                 'diffvector': diffvector,
             },
             objtype="shield",
+            group=self,
+        ))
+        self.append(o)
+        return self
+
+    def AddSuperShield(self, target, expireFn):
+        diffvector = Vector2(0.06, 0).addAngle(random2pi())
+        o = SpriteObj().initialize(dict(
+            expireFn=expireFn,
+            pos=target.pos + diffvector,
+            movefnargs={
+                "targetobj": target,
+                "diffvector": diffvector,
+                "anglespeed": random2pi()
+            },
+            objtype="supershield",
             group=self,
         ))
         self.append(o)
@@ -954,22 +973,6 @@ class GameObjectGroup(list):
             pos=startpos,
             movevector=Vector2.rect(1, Vector2.phase(tagetpos - startpos)),
             objtype="superbullet",
-            group=self,
-        ))
-        self.append(o)
-        return self
-
-    def AddSuperShield(self, target, expireFn):
-        diffvector = Vector2(0.06, 0).addAngle(random2pi())
-        o = SpriteObj().initialize(dict(
-            expireFn=expireFn,
-            pos=target.pos + diffvector,
-            movefnargs={
-                "targetobj": target,
-                "diffvector": diffvector,
-                "anglespeed": random2pi()
-            },
-            objtype="supershield",
             group=self,
         ))
         self.append(o)
@@ -1041,7 +1044,12 @@ class GameObjectGroup(list):
         return bucketlist
 
     # AI start funcion
-    def prepareActions(self, aimingtargetlist, thisFPS, thistick):
+    # call
+    # prepareActions
+    # SelectAction from AI or get actions from client
+    # applyActions
+    # AutoMoveByTime
+    def prepareActions(self, enemyTeamList, thisFPS, thistick):
         self.thistick = thistick
         self.tdur = self.thistick - self.statistic["teamStartTime"]
         self.thisFPS = thisFPS
@@ -1097,26 +1105,14 @@ class GameObjectGroup(list):
             a.AutoMoveByTime(thistick)
         return self
 
+    # AI utility functions
     def actRatePerSec(self, act):
         return self.actratedict.get(act, 0)
-    # utility functions
 
     def getObjectByTypes(self, filterlist):
         return [a for a in self if a.objtype in filterlist]
 
-    def getFilterdObjects(self, aimingtargetlist, filterlist):
-        return sum([a.getObjectByTypes(filterlist) for a in aimingtargetlist], [])
-
-    # advanced AI functions
-    def findTarget(self, src, objtypes, filterfn, aimingtargetlist):
-        # select target filtered by objtypelist and filterfn
-        target = None
-        olist = self.getFilterdObjects(aimingtargetlist, objtypes)
-        if olist:
-            target = min(olist, key=filterfn)
-        targetlen = target.lento(src) if target else 1.5
-        return target, targetlen
-
+    # advanced AI util functions
     def getAimPos(self, srcpos, s1, target):
         # estimate target pos by target speed
         s2 = abs(target.movevector)
@@ -1152,7 +1148,7 @@ class GameObjectGroup(list):
         return None
 
     # 실제 각 AI 별로 다르게 만들어야 하는 함수
-    def SelectAction(self, aimingtargetlist, src):
+    def SelectAction(self, enemyTeamList, src):
         """
         returns
         [ (action, acttionargs), ... ]
@@ -1181,8 +1177,8 @@ class GameObjectGroup(list):
 
 class AI1(GameObjectGroup):
 
-    def SelectAction(self, aimingtargetlist, src):
-        randomtarget = self.selectRandomBall(aimingtargetlist)
+    def SelectAction(self, enemyTeamList, src):
+        randomtarget = self.gameObj.selectRandomBall(enemyTeamList)
         randomtargetlen = randomtarget.lento(src) if randomtarget else 1
 
         supertargetpos = randomtarget.pos if randomtarget else None
@@ -1212,17 +1208,17 @@ class AI1(GameObjectGroup):
 
 class AI2(GameObjectGroup):
 
-    def SelectAction(self, aimingtargetlist, src):
+    def SelectAction(self, enemyTeamList, src):
         fps = self.thisFPS
 
         # calc fire target
-        neartarget, nearlen = self.findTarget(
+        neartarget, nearlen = self.gameObj.findTarget(
             src,
             ['bounceball'],
             src.lento,
-            aimingtargetlist
+            enemyTeamList
         )
-        randomtarget = self.selectRandomBall(aimingtargetlist)
+        randomtarget = self.gameObj.selectRandomBall(enemyTeamList)
 
         hommingtarget = self.getFireTarget(
             src, "hommingbullet", neartarget, ((0.5, 0.1),))
@@ -1260,12 +1256,12 @@ class AI2(GameObjectGroup):
                 return curlen - src.collisionCricle - x.collisionCricle
             else:
                 return 2
-        dangertarget, dangerlen = self.findTarget(
+        dangertarget, dangerlen = self.gameObj.findTarget(
             src,
             ['bounceball', 'superbullet', 'hommingbullet',
                 'bullet', "circularbullet"],
             getDangerLevel,
-            aimingtargetlist
+            enemyTeamList
         )
         # 찾은 위험 object로 부터 회피한다.
         # target to src vector 의 방향으로 이동한다. (즉 뒤로 이동.)
@@ -1320,24 +1316,34 @@ class ShootingGameMixin(object):
         'team7': {"AIClass": GameObjectGroup, "resource": "blue", "teamcolor": (0x00, 0xff, 0xff)},
     }
 
-    def getTeamByID(self, id):
+    def initGroups(self, groupclass):
+        self.dispgroup = {}
+        self.dispgroup['backgroup'] = groupclass().initialize(gameObj=self)
+        self.dispgroup['effectObjs'] = groupclass().initialize(gameObj=self)
+        self.dispgroup['frontgroup'] = groupclass().initialize(gameObj=self)
+        self.dispgroup['objplayers'] = []
+
+    def getTeamByID(self, ID):
+        return self.getTeamByIDfromList(self.dispgroup['objplayers'], ID)
+
+    def getTeamByIDfromList(self, goglist, ID):
         findteam = None
-        for t in self.dispgroup['objplayers']:
-            if t.ID == id:
+        for t in goglist:
+            if t.ID == ID:
                 findteam = t
                 break
         return findteam
 
-    def getBallByID(self, id):
+    def getBallByID(self, ID):
         findball = None
         for t in self.dispgroup['objplayers']:
-            if t.hasBounceBall() and t[0].ID == id:
+            if t.hasBounceBall() and t[0].ID == ID:
                 findball = t[0]
                 break
         return findball
 
-    def delTeamByID(self, id):
-        findteam = self.getTeamByID(id)
+    def delTeamByID(self, ID):
+        findteam = self.getTeamByID(ID)
         if findteam is not None:
             self.dispgroup['objplayers'].remove(findteam)
 
@@ -1377,6 +1383,54 @@ class ShootingGameMixin(object):
             print actionjson, actions
             return None
 
+    def makeCollisionDict(self):
+        # 현재 위치를 기준으로 collision / interaction 검사하고
+        # get all collision list { src: [ t1, t1.. ], .. }
+        buckets = []
+        for aa in self.dispgroup['objplayers']:
+            bk = aa.makeCollisionBucket(
+                ['bounceball', 'shield', 'supershield', 'bullet',
+                    'circularbullet', 'superbullet', 'hommingbullet'],
+                0.05, 0.05)
+            buckets.append((aa, bk))
+
+        resultdict = {}
+        cmpsum = 0
+        for ob1, ob2 in itertools.combinations(buckets, 2):
+            g1, b1 = ob1
+            g2, b2 = ob2
+            if g1.teamname == g2.teamname:
+                continue
+            toiter = set(b1.keys()) & set(b2.keys())
+            for i in toiter:
+                cmpsum += len(b1[i]) * len(b2[i])
+                for o1 in b1[i]:
+                    for o2 in b2[i]:
+                        o1.checkCollisionAppend(o2, resultdict)
+        return resultdict, cmpsum
+
+    # game AI support functions
+    def getEnemyTeamList(self, myTeam):
+        # 자신과 같은 팀을 제외한 teamList를 만든다.
+        return [tt for tt in self.dispgroup[
+            'objplayers'] if tt.teamname != myTeam.teamname]
+
+    def selectRandomBall(self, teamList):
+        targetobjs = [a[0] for a in teamList if a.hasBounceBall()]
+        return random.choice(targetobjs) if targetobjs else None
+
+    def getFilterdObjects(self, teamList, filterlist):
+        return sum([a.getObjectByTypes(filterlist) for a in teamList], [])
+
+    def findTarget(self, src, objtypes, filterfn, teamList):
+        # select target filtered by objtypelist and filterfn
+        target = None
+        olist = self.getFilterdObjects(teamList, objtypes)
+        if olist:
+            target = min(olist, key=filterfn)
+        targetlen = target.lento(src) if target else 1.5
+        return target, targetlen
+
 
 class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
@@ -1387,18 +1441,11 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             teamcolor=sel["teamcolor"],
             teamname=teamname,
             effectObjs=self.dispgroup['effectObjs'],
-            servermove=servermove
+            servermove=servermove,
+            gameObj=self
         )
         o.makeMember()
         return o
-
-    def makegroups(self):
-        self.dispgroup = {}
-        self.dispgroup['backgroup'] = GameObjectGroup().initialize()
-        self.dispgroup['effectObjs'] = GameObjectGroup().initialize()
-        self.dispgroup['frontgroup'] = GameObjectGroup().initialize()
-
-        self.dispgroup['objplayers'] = []
 
     def __init__(self, *args, **kwds):
         def setAttr(name, defaultvalue):
@@ -1409,7 +1456,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
         self.FPSTimerInit(getFrameTime, 60)
 
-        self.makegroups()
+        ShootingGameMixin.initGroups(self, GameObjectGroup)
 
         # server team
         for tn in ['team0', 'team1']:  # , 'team2', 'team3']:
@@ -1470,32 +1517,6 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                 teamscore[j]['teamscore'],
                 teamscore[j]['objcount']
             )
-
-    def makeCollisionDict(self):
-        # 현재 위치를 기준으로 collision / interaction 검사하고
-        # get all collision list { src: [ t1, t1.. ], .. }
-        buckets = []
-        for aa in self.dispgroup['objplayers']:
-            bk = aa.makeCollisionBucket(
-                ['bounceball', 'shield', 'supershield', 'bullet',
-                    'circularbullet', 'superbullet', 'hommingbullet'],
-                0.05, 0.05)
-            buckets.append((aa, bk))
-
-        resultdict = {}
-        cmpsum = 0
-        for ob1, ob2 in itertools.combinations(buckets, 2):
-            g1, b1 = ob1
-            g2, b2 = ob2
-            if g1.teamname == g2.teamname:
-                continue
-            toiter = set(b1.keys()) & set(b2.keys())
-            for i in toiter:
-                cmpsum += len(b1[i]) * len(b2[i])
-                for o1 in b1[i]:
-                    for o2 in b2[i]:
-                        o1.checkCollisionAppend(o2, resultdict)
-        return resultdict, cmpsum
 
     def doScore(self, resultdict):
         for src, targets in resultdict.iteritems():
@@ -1601,45 +1622,42 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
             actions = cmdDict.get('actions')
             tid = cmdDict['team']['teamid']
-            to = self.getTeamByID(tid)
-            if to.servermove:
-                print 'invalid team', to
+            thisTeam = self.getTeamByID(tid)
+            if thisTeam.servermove:
+                print 'invalid team', thisTeam
                 return
             actionjson = cmdDict['actions']
             actions = self.deserializeActions(actionjson)
 
-            targets = [tt for tt in self.dispgroup[
-                'objplayers'] if tt.teamname != to.teamname]
-            to.prepareActions(
-                targets,
+            enemyTeamList = self.getEnemyTeamList(thisTeam)
+            thisTeam.prepareActions(
+                enemyTeamList,
                 self.frameinfo['ThisFPS'],
                 self.thistick
             )
 
-            to.applyActions(actions)
-            to.AutoMoveByTime(self.thistick)
+            thisTeam.applyActions(actions)
+            thisTeam.AutoMoveByTime(self.thistick)
 
     def doFireAndAutoMoveByTime(self):
         # 그룹내의 bounceball 들을 AI automove 한다.
-        # 자신과 같은 팀을 제외한 targets을 만든다.
         selmov = self.dispgroup['objplayers'][:]
         random.shuffle(selmov)
-        for aa in selmov:
-            if aa.servermove is not True:
+        for thisTeam in selmov:
+            if thisTeam.servermove is not True:
                 continue
 
-            if aa.hasBounceBall():
-                targets = [tt for tt in self.dispgroup[
-                    'objplayers'] if tt.teamname != aa.teamname]
-                aa.prepareActions(
-                    targets,
+            if thisTeam.hasBounceBall():
+                enemyTeamList = self.getEnemyTeamList(thisTeam)
+                thisTeam.prepareActions(
+                    enemyTeamList,
                     self.frameinfo['ThisFPS'],
                     self.thistick
                 )
-                actions = aa.SelectAction(targets, aa[0])
-                aa.applyActions(actions)
+                actions = thisTeam.SelectAction(enemyTeamList, thisTeam[0])
+                thisTeam.applyActions(actions)
 
-            aa.AutoMoveByTime(self.thistick)
+            thisTeam.AutoMoveByTime(self.thistick)
 
     def doFPSlogic(self):
         self.thistick = self.frameinfo['thistime']
@@ -1693,29 +1711,25 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
 
         print 'client connected', self.client_address, self.teamname
         self.quit = False
+
+        self.sendQueue = Queue.Queue()
+        self.recvQueue = Queue.Queue()
         self.server.clientCommDict['clients'][self.teamname] = {
-            'recvQueue': Queue.Queue(),
-            'sendQueue': Queue.Queue(),
+            'recvQueue': self.recvQueue,
+            'sendQueue': self.sendQueue,
         }
-
-        self.sendQueue = self.server.clientCommDict[
-            'clients'][self.teamname]['sendQueue']
-        self.recvQueue = self.server.clientCommDict[
-            'clients'][self.teamname]['recvQueue']
-
         self.protocol = I32sendrecv(
             self.recvQueue,
             self.sendQueue,
             self.request
         )
-
         putParams2Queue(
             self.recvQueue,
             cmd='make',
             teamname=self.teamname
         )
         self.stat = Statistics()
-        self.oldtime = time.time()
+        self.oldtime = getFrameTime()
 
     def handle(self):
         if self.setuped is not True:
@@ -1723,7 +1737,7 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
 
         while self.quit is not True:
             self.protocol.sendrecv()
-            self.stat.update(time.time() - self.oldtime)
+            self.stat.update(getFrameTime() - self.oldtime)
 
     def finish(self):
         if self.setuped is not True:

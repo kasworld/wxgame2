@@ -423,14 +423,6 @@ def runService(connectTo, queues):
 
 class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
 
-    def makegroups(self):
-        self.dispgroup = {}
-        self.dispgroup['backgroup'] = GameObjectDisplayGroup().initialize()
-        self.dispgroup['effectObjs'] = GameObjectDisplayGroup().initialize()
-        self.dispgroup['frontgroup'] = GameObjectDisplayGroup().initialize()
-
-        self.dispgroup['objplayers'] = []
-
     def __init__(self, *args, **kwds):
         self.recvQueue, self.sendQueue = kwds.pop('queues')
         wx.Control.__init__(self, *args, **kwds)
@@ -440,7 +432,8 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         self.FPSTimerInit(getFrameTime, 60)
         self.SetBackgroundColour(wx.Colour(0x0, 0x0, 0x0))
 
-        self.makegroups()
+        ShootingGameMixin.initGroups(self, GameObjectDisplayGroup)
+
         self.dispgroup['backgroup'].append(
             self.makeBkObj()
         )
@@ -489,7 +482,8 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         def makeGameObjectDisplayGroup(og):
             gog = GameObjectDisplayGroup(
             ).initialize(
-                resource=og['resource']
+                resource=og['resource'],
+                gameObj=self
             ).deserialize(
                 og,
                 ShootingGameObject,
@@ -505,14 +499,6 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
                 o.loadResource(rcs)
             return gog
 
-        def getTeamByID(goglist, id):
-            findteam = None
-            for t in goglist:
-                if t.ID == id:
-                    findteam = t
-                    break
-            return findteam
-
         self.frameinfo.update(loadlist['frameinfo'])
 
         oldgog = self.dispgroup['objplayers']
@@ -520,7 +506,7 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         for og in loadlist['objplayers']:
             gog = makeGameObjectDisplayGroup(og)
 
-            oldteam = getTeamByID(oldgog, gog.ID)
+            oldteam = self.getTeamByIDfromList(oldgog, gog.ID)
             if oldteam is not None:
                 gog.statistic = oldteam.statistic
                 if oldteam.hasBounceBall() and gog.hasBounceBall():
