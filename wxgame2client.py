@@ -406,7 +406,7 @@ class TCPGameClient(threading.Thread):
             recvlist = [self.protocol]
             sendlist = [self.protocol] if self.protocol.canSend() else []
             inputready, outputready, exceptready = select.select(
-                recvlist, sendlist, [], 0.01)
+                recvlist, sendlist, [], 1.0 / 120)
             for s in inputready:
                 if self.protocol.recv() == 'complete':
                     self.stat['recv'].update(getFrameTime() - self.oldtime)

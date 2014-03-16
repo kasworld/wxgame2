@@ -1482,11 +1482,11 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
-        # print 'objs:', self.statObjN
-        # print 'cmps:', self.statCmpN
-        # print 'packetlen:', self.statPacketL
-        # print 'fps:', self.frameinfo['stat']
-        # self.diaplayScore()
+        print 'objs:', self.statObjN
+        print 'cmps:', self.statCmpN
+        print 'packetlen:', self.statPacketL
+        print 'fps:', self.frameinfo['stat']
+        self.diaplayScore()
         for n, v in self.clientCommDict['clients'].iteritems():
             if v is not None:
                 print 'queue ', n, 'recv', v['recvQueue'].qsize(), 'send', v['sendQueue'].qsize()
@@ -1744,13 +1744,10 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
             return
 
         while self.quit is not True:
-            # self.protocol.sendrecv()
-            # inputready, outputready, exceptready = select.select(
-            #     [self.protocol], [self.protocol], [], 1.0)
             recvlist = [self.protocol]
             sendlist = [self.protocol] if self.protocol.canSend() else []
             inputready, outputready, exceptready = select.select(
-                recvlist, sendlist, [], 0.01)
+                recvlist, sendlist, [], 1.0 / 120)
             for s in inputready:
                 if self.protocol.recv() == 'complete':
                     self.stat['recv'].update(getFrameTime() - self.oldtime)
