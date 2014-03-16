@@ -19,6 +19,7 @@ import os
 import os.path
 import sys
 import socket
+import select
 import signal
 import time
 import threading
@@ -394,19 +395,28 @@ class TCPGameClient(threading.Thread):
             self.sendQueue,
             sock
         )
-        self.stat = Statistics()
-        self.oldtime = time.time()
+        self.stat = {
+            'send': Statistics(),
+            'recv': Statistics()
+        }
+        self.oldtime = getFrameTime()
 
     def clientLoop(self):
         while self.quit is not True:
-            self.protocol.sendrecv()
-            self.stat.update(time.time() - self.oldtime)
-
-        # self.protocol.sock.shutdown(socket.SHUT_RDWR)
-        self.protocol.sock.close()
+            recvlist = [self.protocol]
+            sendlist = [self.protocol] if self.protocol.canSend() else []
+            inputready, outputready, exceptready = select.select(
+                recvlist, sendlist, [], 0.01)
+            for s in inputready:
+                if self.protocol.recv() == 'complete':
+                    self.stat['recv'].update(getFrameTime() - self.oldtime)
+            for s in outputready:
+                if self.protocol.send() == 'complete':
+                    self.stat['send'].update(getFrameTime() - self.oldtime)
 
     def shutdown(self):
-        print 'netloop ms', self.stat
+        print 'send', self.stat['send']
+        print 'recv', self.stat['recv']
         self.quit = True
         self.protocol.sock.close()
 

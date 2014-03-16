@@ -274,7 +274,7 @@ class I32sendrecv(object):
         recv completed packet is put to recv packet
         """
         if self.recvQueue.full():
-            return  # recv queue full
+            return 'sleep'  # recv queue full
         if self.readbuf == []:  # read header
             self.readbuf = [
                 memoryview(bytearray(self.headerLen)),
@@ -286,7 +286,6 @@ class I32sendrecv(object):
             self.readbuf[0][-self.readbuf[1]:], self.readbuf[1])
         if nbytes == 0:
             raise RuntimeError("socket connection broken")
-            pass
         self.readbuf[1] -= nbytes
 
         if self.readbuf[1] == 0:  # complete recv
@@ -301,13 +300,18 @@ class I32sendrecv(object):
             elif self.readbuf[2] == 'body':
                 self.recvQueue.put(self.readbuf[0].tobytes())
                 self.readbuf = []
+                return 'complete'
             else:
                 print 'invalid recv state', self.readbuf[2]
-                pass  # unknown error
+                return 'unknown'
+        return 'cont'
+
+    def canSend(self):
+        return not self.sendQueue.empty() or len(self.writebuf) != 0
 
     def send(self):
         if self.sendQueue.empty() and len(self.writebuf) == 0:
-            return 'Nothing'  # send queue empty
+            return 'sleep'  # send queue empty
         if len(self.writebuf) == 0:  # send new packet
             tosenddata = self.sendQueue.get()
             headerdata = self.headerStruct.pack(len(tosenddata))
@@ -322,7 +326,9 @@ class I32sendrecv(object):
         wdata[1] += sentlen
         if len(wdata[0]) == wdata[1]:  # complete send
             del self.writebuf[0]
-        return sentlen
+            if len(self.writebuf) == 0:
+                return 'complete'
+        return 'cont'
 
     def sendrecv(self):
         inputready, outputready, exceptready = select.select(
@@ -334,7 +340,7 @@ class I32sendrecv(object):
 
     def fileno(self):
         # for select
-        return self.sock
+        return self.sock.fileno()
 
 # ======== game lib end ============
 
@@ -1476,11 +1482,11 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
-        print 'objs:', self.statObjN
-        print 'cmps:', self.statCmpN
-        print 'packetlen:', self.statPacketL
-        print 'fps:', self.frameinfo['stat']
-        self.diaplayScore()
+        # print 'objs:', self.statObjN
+        # print 'cmps:', self.statCmpN
+        # print 'packetlen:', self.statPacketL
+        # print 'fps:', self.frameinfo['stat']
+        # self.diaplayScore()
         for n, v in self.clientCommDict['clients'].iteritems():
             if v is not None:
                 print 'queue ', n, 'recv', v['recvQueue'].qsize(), 'send', v['sendQueue'].qsize()
@@ -1727,7 +1733,10 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
             cmd='make',
             teamname=self.teamname
         )
-        self.stat = Statistics()
+        self.stat = {
+            'send': Statistics(),
+            'recv': Statistics()
+        }
         self.oldtime = getFrameTime()
 
     def handle(self):
@@ -1735,8 +1744,19 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
             return
 
         while self.quit is not True:
-            self.protocol.sendrecv()
-            self.stat.update(getFrameTime() - self.oldtime)
+            # self.protocol.sendrecv()
+            # inputready, outputready, exceptready = select.select(
+            #     [self.protocol], [self.protocol], [], 1.0)
+            recvlist = [self.protocol]
+            sendlist = [self.protocol] if self.protocol.canSend() else []
+            inputready, outputready, exceptready = select.select(
+                recvlist, sendlist, [], 0.01)
+            for s in inputready:
+                if self.protocol.recv() == 'complete':
+                    self.stat['recv'].update(getFrameTime() - self.oldtime)
+            for s in outputready:
+                if self.protocol.send() == 'complete':
+                    self.stat['send'].update(getFrameTime() - self.oldtime)
 
     def finish(self):
         if self.setuped is not True:
@@ -1746,7 +1766,8 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
         self.request.close()
 
         print 'client disconnected', self.client_address, self.teamname
-        print 'netloop ms', self.stat
+        print 'send', self.stat['send']
+        print 'recv', self.stat['recv']
 
         self.server.clientCommDict['FreeTeamList'].put(self.teamname)
         putParams2Queue(
