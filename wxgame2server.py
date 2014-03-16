@@ -596,7 +596,6 @@ class SpriteObj(Storage):
             return
         dur = (self.thistick - self.lastAutoMoveTick)
 
-        print 'Move_FollowTarget', self, self.movefnargs["targetobj"]
         self.accelToPos(self.movefnargs["targetobj"].pos)
         mvlen = abs(self.movevector)
         self.movevector += self.movefnargs["accelvector"] * dur
@@ -959,7 +958,7 @@ class GameObjectGroup(list):
             pos=startpos,
             movevector=Vector2.rect(1, Vector2.phase(target.pos - startpos)),
             movefnargs={
-                "accelvector": Vector2(0.0, 0.0),
+                "accelvector": Vector2(0.5, 0.5),
                 "targetobj": target
             },
             objtype="hommingbullet",
