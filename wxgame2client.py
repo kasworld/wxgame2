@@ -22,6 +22,7 @@ import socket
 import select
 import signal
 import time
+import argparse
 import threading
 import Queue
 import wx
@@ -29,10 +30,9 @@ import wx.grid
 import wx.lib.colourdb
 from euclid import Vector2
 #from wxgame2server import GameObjectGroup
-from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict, fromGzJson
-from wxgame2server import getFrameTime, putParams2Queue, ShootingGameMixin, I32sendrecv, Statistics
+from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict, fromGzJson, Storage
+from wxgame2server import getFrameTime, putParams2Queue, ShootingGameMixin, I32sendrecv
 from wxgame2server import AI2 as GameObjectGroup
-#from wxgame2server import GameObjectGroup
 # ======== game lib ============
 
 
@@ -313,7 +313,7 @@ class ShootingGameObject(SpriteObj):
 
     def Draw_MDC(self, pdc, clientsize, sizehint):
         self.currentimagenumber = g_frameinfo[
-            'frameCount'] % len(self.shapefnargs['memorydcs'])
+            'stat'].datadict['count'] % len(self.shapefnargs['memorydcs'])
         pdc.Blit(
             clientsize.x * self.pos.x - self.shapefnargs['dcsize'][0] / 2,
             clientsize.y * self.pos.y - self.shapefnargs['dcsize'][1] / 2,
@@ -385,48 +385,41 @@ class GameObjectDisplayGroup(GameObjectGroup):
 
 class TCPGameClient(threading.Thread):
 
-    def __init__(self, connectTo, queues):
-        self.recvQueue, self.sendQueue = queues
-        self.quit = False
+    def __str__(self):
+        return self.conn.protocol.getStatInfo()
+
+    def __init__(self, connectTo):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(connectTo)
-        self.protocol = I32sendrecv(
-            self.recvQueue,
-            self.sendQueue,
-            sock
-        )
-        self.stat = {
-            'send': Statistics(),
-            'recv': Statistics()
-        }
-        self.oldtime = getFrameTime()
+
+        protocol = I32sendrecv(sock)
+        self.conn = Storage({
+            'protocol': protocol,
+            'recvQueue': protocol.recvQueue,
+            'sendQueue': protocol.sendQueue,
+            'quit': False,
+        })
+        print self
 
     def clientLoop(self):
-        while self.quit is not True:
-            recvlist = [self.protocol]
-            sendlist = [self.protocol] if self.protocol.canSend() else []
-            inputready, outputready, exceptready = select.select(
-                recvlist, sendlist, [], 1.0 / 120)
-            for s in inputready:
-                if self.protocol.recv() == 'complete':
-                    self.stat['recv'].update(getFrameTime() - self.oldtime)
-            for s in outputready:
-                if self.protocol.send() == 'complete':
-                    self.stat['send'].update(getFrameTime() - self.oldtime)
+        try:
+            while self.conn.quit is not True:
+                self.conn.protocol.sendrecv()
+        except RuntimeError as e:
+            if e.args[0] != "socket connection broken":
+                raise RuntimeError(e)
 
     def shutdown(self):
-        print 'send', self.stat['send']
-        print 'recv', self.stat['recv']
-        self.quit = True
-        self.protocol.sock.close()
+        self.conn.quit = True
+        self.conn.protocol.sock.close()
+        print 'end connection'
+        print self
 
 
-def runService(connectTo, queues):
-    client = TCPGameClient(connectTo, queues)
-
+def runService(connectTo):
+    client = TCPGameClient(connectTo)
     client_thread = threading.Thread(target=client.clientLoop)
     client_thread.start()
-
     return client, client_thread
 # ================ tcp client end =========
 
@@ -434,7 +427,7 @@ def runService(connectTo, queues):
 class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
 
     def __init__(self, *args, **kwds):
-        self.recvQueue, self.sendQueue = kwds.pop('queues')
+        self.conn = kwds.pop('conn')
         wx.Control.__init__(self, *args, **kwds)
         self.Bind(wx.EVT_PAINT, self._OnPaint)
         self.Bind(wx.EVT_SIZE, self._OnSize)
@@ -447,14 +440,12 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         self.dispgroup['backgroup'].append(
             self.makeBkObj()
         )
-
-        self.registerRepeatFn(self.prfps, 1)
-
         self.myteam = None
+        self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
         print 'fps:', self.statFPS
-        print 'qsize recv:', self.recvQueue.qsize(), 'send:', self.sendQueue.qsize()
+        print self.conn.protocol.getStatInfo()
 
     def makeBkObj(self):
         return BackGroundSplite().initialize(dict(
@@ -552,7 +543,7 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         # print actions, actionjson
 
         putParams2Queue(
-            self.sendQueue,
+            self.conn.sendQueue,
             cmd='act',
             team=self.myteam,
             actions=actionjson,
@@ -560,9 +551,9 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
 
     def processCmd(self):
 
-        while not self.recvQueue.empty():
+        while not self.conn.recvQueue.empty():
             try:
-                cmdDict = self.recvQueue.get_nowait()
+                cmdDict = self.conn.recvQueue.get_nowait()
                 if cmdDict is None:
                     break
             except Queue.Empty:
@@ -573,10 +564,20 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
             cmdDict = fromGzJson(cmdDict)
 
             cmd = cmdDict.get('cmd')
-            if cmd == 'gamestate':
+
+            if cmd == 'gameState':
+                putParams2Queue(
+                    self.conn.sendQueue,
+                    cmd='reqState',
+                )
                 self.applyState(cmdDict)
-                self.makeClientAIAction()
-            elif cmd == 'teaminfo':
+                if self.myteam is not None:
+                    self.makeClientAIAction()
+
+            elif cmd == 'actACK':
+                pass
+
+            elif cmd == 'teamInfo':
                 teamname = cmdDict.get('teamname')
                 teamid = cmdDict.get('teamid')
                 self.myteam = {
@@ -584,12 +585,14 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
                     'teamid': teamid,
                     'teamStartTime': self.thistick,
                 }
-                print 'joined', teamname, teamid, self.teams[teamname]
+                print 'joined', teamname, teamid
                 print self.myteam
                 putParams2Queue(
-                    self.sendQueue,
+                    self.conn.sendQueue,
                     cmd='reqState',
                 )
+            else:
+                print 'unknown cmd', cmdDict
 
     def doFPSlogic(self):
         g_frameinfo.update(self.frameinfo)
@@ -619,10 +622,10 @@ class MyFrame(wx.Frame):
 
     def __init__(self, *args, **kwds):
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
-        queues = kwds.pop('queues')
+        conn = kwds.pop('conn')
         wx.Frame.__init__(self, *args, **kwds)
         self.panel_1 = ShootingGameClient(
-            self, -1, size=(1000, 1000), queues = queues)
+            self, -1, size=(1000, 1000), conn = conn)
         self.panel_1.framewindow = self
         self.__set_properties()
         self.__do_layout()
@@ -642,16 +645,27 @@ class MyFrame(wx.Frame):
         self.panel_1.SetFocus()
 
 
-def runtest():
-    if len(sys.argv) == 2:
-        destip = sys.argv[1]
-    else:
+def runtest(destip, teamname):
+    if destip is None:
         destip = 'localhost'
-    (recvQueue, sendQueue) = Queue.Queue(), Queue.Queue()
-
     connectTo = destip, 22517
     print 'Client start, ', connectTo
-    client, client_thread = runService(connectTo, (recvQueue, sendQueue))
+
+    client, client_thread = runService(connectTo)
+
+    if teamname:
+        print 'makeTeam', teamname
+        putParams2Queue(
+            client.conn.sendQueue,
+            cmd='makeTeam',
+            teamname=teamname
+        )
+    else:  # observer mode
+        print 'observer mode'
+        putParams2Queue(
+            client.conn.sendQueue,
+            cmd='reqState',
+        )
 
     def sigstophandler(signum, frame):
         print 'User Termination'
@@ -663,7 +677,7 @@ def runtest():
     app = wx.App()
     frame_1 = MyFrame(
         None, -1, "", size=(1000, 1000),
-        queues= (recvQueue, sendQueue))
+        conn= client.conn)
     app.SetTopWindow(frame_1)
     frame_1.Show()
     app.MainLoop()
@@ -672,4 +686,12 @@ def runtest():
 
 
 if __name__ == "__main__":
-    runtest()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '-s', '--server'
+    )
+    parser.add_argument(
+        '-t', '--teamname'
+    )
+    args = parser.parse_args()
+    runtest(args.server, args.teamname)
