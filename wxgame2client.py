@@ -3,15 +3,9 @@
 
 """ wxgame client
     wxGameFramework
-    Copyright 2011 kasw <kasworld@gmail.com>
-    wxpython을 사용해서 게임을 만들기위한 프레임웍과 테스트용 게임 3가지
-    기본적인 가정은
-    좌표계는 0~1.0 인 정사각형 실수 좌표계
-    collision은 원형: 현재 프레임의 위치만을 기준으로 검출한다.
-    모든? action은 frame 간의 시간차에 따라 보정 된다.
-    문제점은 frame간에 지나가 버린 경우 이동 루트상으론 collision 이 일어나야 하지만 검출 불가.
+    Copyright 2011,2013,1014 kasw <kasworld@gmail.com>
 """
-Version = '2.1.0'
+from wxgame2server import Version
 import random
 import math
 import traceback

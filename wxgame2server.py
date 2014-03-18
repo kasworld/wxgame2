@@ -5,7 +5,7 @@
 게임 서버용으로 수정, wxpython code를 제거
 
 wxGameFramework
-Copyright 2011 kasw <kasworld@gmail.com>
+Copyright 2011,2013,1014 kasw <kasworld@gmail.com>
 wxpython을 사용해서 게임을 만들기위한 프레임웍과 테스트용 게임 3가지
 기본적인 가정은
 좌표계는 0~1.0 인 정사각형 실수 좌표계
@@ -58,7 +58,7 @@ server send to server
 }
 
 """
-Version = '2.1.0'
+Version = '2.2.0'
 import time
 import math
 import random
