@@ -282,7 +282,8 @@ class ShootingGameObject(SpriteObj):
 
     def loadResource(self, rcs):
         if rcs is None:
-            self.shapefnargs['brush'] = wx.Brush(self.group.teamcolor, wx.SOLID)
+            self.shapefnargs['brush'] = wx.Brush(
+                self.group.teamcolor, wx.SOLID)
             self.shapefnargs['pen'] = wx.Pen(self.group.teamcolor)
         else:
             self.shapefnargs['memorydcs'] = rcs
@@ -343,7 +344,7 @@ class GameObjectDisplayGroup(GameObjectGroup):
             return
 
         if self.resource is None:
-            #print self
+            # print self
             self.rcsdict = {
                 'bounceball': None,
                 'bullet': None,
@@ -678,12 +679,13 @@ def runtest(destip, teamname):
     client, client_thread = runService(connectTo)
 
     if teamname:
-        print 'makeTeam', teamname
+        teamcolor = random.choice(wx.lib.colourdb.getColourInfoList())
+        print 'makeTeam', teamname, teamcolor
         putParams2Queue(
             client.conn.sendQueue,
             cmd='makeTeam',
             teamname=teamname,
-            teamcolor=(0x7f, 0x7f, 0x7f)
+            teamcolor=teamcolor[1:]
         )
     else:  # observer mode
         print 'observer mode'

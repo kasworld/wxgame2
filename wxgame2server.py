@@ -1337,17 +1337,6 @@ class AI2(GameObjectGroup):
 
 
 class ShootingGameMixin(object):
-    teams = {
-        #'team0': {"AIClass": GameObjectGroup, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
-        'team0': {"AIClass": AI2, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
-        'team1': {"AIClass": AI2, "resource": "orange", "teamcolor": (0xff, 0x7f, 0x00)},
-        'team2': {"AIClass": AI2, "resource": "purple", "teamcolor": (0xff, 0x00, 0xff)},
-        'team3': {"AIClass": AI2, "resource": "grey", "teamcolor": (0x7f, 0x7f, 0x7f)},
-        'team4': {"AIClass": GameObjectGroup, "resource": "red", "teamcolor": (0xff, 0x00, 0x00)},
-        'team5': {"AIClass": GameObjectGroup, "resource": "yellow", "teamcolor": (0xff, 0xff, 0x00)},
-        'team6': {"AIClass": GameObjectGroup, "resource": "green", "teamcolor": (0x00, 0xff, 0x00)},
-        'team7': {"AIClass": GameObjectGroup, "resource": "blue", "teamcolor": (0x00, 0xff, 0xff)},
-    }
 
     def initGroups(self, groupclass):
         self.dispgroup = {}
@@ -1468,10 +1457,21 @@ class ShootingGameMixin(object):
 class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
     def make1Team(self, teamname, servermove):
-        if teamname not in self.teams:
+        teams = {
+            #'team0': {"AIClass": GameObjectGroup, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
+            'team0': {"AIClass": AI2, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
+            'team1': {"AIClass": AI2, "resource": "orange", "teamcolor": (0xff, 0x7f, 0x00)},
+            'team2': {"AIClass": AI2, "resource": "purple", "teamcolor": (0xff, 0x00, 0xff)},
+            'team3': {"AIClass": AI2, "resource": "grey", "teamcolor": (0x7f, 0x7f, 0x7f)},
+            'team4': {"AIClass": AI2, "resource": "red", "teamcolor": (0xff, 0x00, 0x00)},
+            'team5': {"AIClass": AI2, "resource": "yellow", "teamcolor": (0xff, 0xff, 0x00)},
+            'team6': {"AIClass": AI2, "resource": "green", "teamcolor": (0x00, 0xff, 0x00)},
+            'team7': {"AIClass": AI2, "resource": "blue", "teamcolor": (0x00, 0xff, 0xff)},
+        }
+        if teamname not in teams:
             print 'invalid teamname', teamname
             return None
-        sel = self.teams[teamname]
+        sel = teams[teamname]
         o = sel["AIClass"]().initialize(
             resource=sel["resource"],
             teamcolor=sel["teamcolor"],
@@ -1503,7 +1503,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.FPSTimerInit(getFrameTime, 60)
         ShootingGameMixin.initGroups(self, GameObjectGroup)
         # server team
-        for tn in ['team0', 'team1']:  # , 'team2', 'team3']:
+        for tn in ['team0', 'team1', 'team2', 'team3','team4', 'team5', 'team6', 'team7']:
             o = self.make1Team(tn, servermove=True)
             self.dispgroup['objplayers'].append(o)
         self.statObjN = Statistics()
@@ -1533,20 +1533,20 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             else:
                 teamscore[j.teamname] = dict(
                     teamscore=j.statistic['teamscore'],
-                    color=j.resource,
+                    color=j.resource if j.resource else j.teamcolor,
                     ai=j.__class__.__name__,
                     member=1,
                     objcount=len(j)
                 )
 
-        print "{:8} {:8} {:>8} {:>8} {:>8} {:8}".format(
+        print "{:8} {:15} {:>16} {:>8} {:>8} {:8}".format(
             'teamname', 'color', 'AI type', 'member', 'score', 'objcount'
         )
         sortedinfo = sorted(
             teamscore.keys(), key=lambda x: -teamscore[x]['teamscore'])
 
         for j in sortedinfo:
-            print "{:8} {:8} {:>8} {:8} {:8.4f} {:8}".format(
+            print "{:8} {:15} {:>16} {:8} {:8.4f} {:8}".format(
                 j,
                 teamscore[j]['color'],
                 teamscore[j]['ai'],
