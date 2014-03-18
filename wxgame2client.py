@@ -282,13 +282,15 @@ class ShootingGameObject(SpriteObj):
 
     def loadResource(self, rcs):
         if rcs is None:
-            return
-        self.shapefnargs['memorydcs'] = rcs
-        self.shapefnargs['dcsize'] = self.shapefnargs[
-            'memorydcs'][0].GetSizeTuple()
-        self.currentimagenumber = self.shapefnargs['startimagenumber']
-        self.shapefnargs['animationfps'] = self.shapefnargs.get(
-            'animationfps', 10)
+            self.shapefnargs['brush'] = wx.Brush(self.group.teamcolor, wx.SOLID)
+            self.shapefnargs['pen'] = wx.Pen(self.group.teamcolor)
+        else:
+            self.shapefnargs['memorydcs'] = rcs
+            self.shapefnargs['dcsize'] = self.shapefnargs[
+                'memorydcs'][0].GetSizeTuple()
+            self.currentimagenumber = self.shapefnargs['startimagenumber']
+            self.shapefnargs['animationfps'] = self.shapefnargs.get(
+                'animationfps', 10)
 
         return self
 
@@ -340,32 +342,54 @@ class GameObjectDisplayGroup(GameObjectGroup):
         if self.resoueceReady is True:
             return
 
-        self.rcsdict = {
-            'bounceball': [
-                g_rcs.loadBitmap2MemoryDCArray("%sball.gif" % self.resource),
-                g_rcs.loadBitmap2MemoryDCArray(
-                    "%sball1.gif" % self.resource, reverse=True)
-            ],
-            'bullet': g_rcs.loadBitmap2MemoryDCArray(
-                "%sbullet.png" % self.resource),
-            'hommingbullet': g_rcs.loadBitmap2MemoryDCArray("ring.png", 4, 4),
-            'superbullet': g_rcs.loadBitmap2MemoryDCArray(
-                "%ssuper.png" % self.resource),
-            'circularbullet': g_rcs.loadBitmap2MemoryDCArray(
-                "%sbullet1.png" % self.resource),
-            'shield': g_rcs.loadBitmap2MemoryDCArray(
-                "%sbullet1.png" % self.resource),
-            'supershield': [
-                g_rcs.loadDirfiles2MemoryDCArray("earth"),
-                g_rcs.loadDirfiles2MemoryDCArray("earth", reverse=True)
-            ],
-            'spriteexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
-                "EvilTrace.png", 1, 8),
-            'ballexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
-                "explo1e.png", 8, 1),
-            'spawneffect': g_rcs.loadBitmap2MemoryDCArray(
-                "spawn.png", 1, 6, reverse=True),
-        }
+        if self.resource is None:
+            #print self
+            self.rcsdict = {
+                'bounceball': None,
+                'bullet': None,
+                'hommingbullet': None,
+                'superbullet': None,
+                'circularbullet': None,
+                'shield': None,
+                'supershield': [
+                    g_rcs.loadDirfiles2MemoryDCArray("earth"),
+                    g_rcs.loadDirfiles2MemoryDCArray("earth", reverse=True)
+                ],
+                'spriteexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
+                    "EvilTrace.png", 1, 8),
+                'ballexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
+                    "explo1e.png", 8, 1),
+                'spawneffect': g_rcs.loadBitmap2MemoryDCArray(
+                    "spawn.png", 1, 6, reverse=True),
+            }
+        else:
+            self.rcsdict = {
+                'bounceball': [
+                    g_rcs.loadBitmap2MemoryDCArray(
+                        "%sball.gif" % self.resource),
+                    g_rcs.loadBitmap2MemoryDCArray(
+                        "%sball1.gif" % self.resource, reverse=True)
+                ],
+                'bullet': g_rcs.loadBitmap2MemoryDCArray(
+                    "%sbullet.png" % self.resource),
+                'hommingbullet': g_rcs.loadBitmap2MemoryDCArray("ring.png", 4, 4),
+                'superbullet': g_rcs.loadBitmap2MemoryDCArray(
+                    "%ssuper.png" % self.resource),
+                'circularbullet': g_rcs.loadBitmap2MemoryDCArray(
+                    "%sbullet1.png" % self.resource),
+                'shield': g_rcs.loadBitmap2MemoryDCArray(
+                    "%sbullet1.png" % self.resource),
+                'supershield': [
+                    g_rcs.loadDirfiles2MemoryDCArray("earth"),
+                    g_rcs.loadDirfiles2MemoryDCArray("earth", reverse=True)
+                ],
+                'spriteexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
+                    "EvilTrace.png", 1, 8),
+                'ballexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
+                    "explo1e.png", 8, 1),
+                'spawneffect': g_rcs.loadBitmap2MemoryDCArray(
+                    "spawn.png", 1, 6, reverse=True),
+            }
         self.resoueceReady = True
 
     def initialize(self, *args, **kwds):
@@ -495,7 +519,7 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
 
             for o in gog:
                 rcs = gog.rcsdict[o.objtype]
-                if o.objtype in ['bounceball', 'supershield']:
+                if rcs is not None and o.objtype in ['bounceball', 'supershield']:
                     rcs = random.choice(rcs)
                 o.loadResource(rcs)
             return gog
@@ -658,7 +682,8 @@ def runtest(destip, teamname):
         putParams2Queue(
             client.conn.sendQueue,
             cmd='makeTeam',
-            teamname=teamname
+            teamname=teamname,
+            teamcolor=(0x7f, 0x7f, 0x7f)
         )
     else:  # observer mode
         print 'observer mode'

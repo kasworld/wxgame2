@@ -807,11 +807,12 @@ class GameObjectGroup(list):
     """
 
     def __str__(self):
-        return '[{}:{}:{}:{}:{}]'.format(
+        return '[{}:{}:{}:{}:{}:{}]'.format(
             self.__class__.__name__,
             self.teamname,
             self.ID,
             self.resource,
+            self.teamcolor,
             len(self)
         )
 
@@ -820,6 +821,7 @@ class GameObjectGroup(list):
             'ID': self.ID,
             'teamname': self.teamname,
             'resource': self.resource,
+            'teamcolor': self.teamcolor,
             'objs': []
         }
         for o in self:
@@ -832,6 +834,7 @@ class GameObjectGroup(list):
     def deserialize(self, jsondict, objclass, classargsdict):
         self.ID = jsondict['ID']
         self.teamname = jsondict['teamname']
+        self.teamcolor = jsondict['teamcolor']
         self.resource = jsondict['resource']
         for objid, objtype, objpos, objmovevector in jsondict['objs']:
             argsdict = dict(
@@ -881,9 +884,9 @@ class GameObjectGroup(list):
             },
             "effectObjs": [],
 
-            "teamname": "red",
-            "teamcolor": "red",
-            "resource": "red",
+            "teamname": None,
+            "teamcolor": None,
+            "resource": None,
             "servermove": True,
             'gameObj': None
         }
@@ -1465,10 +1468,24 @@ class ShootingGameMixin(object):
 class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
     def make1Team(self, teamname, servermove):
+        if teamname not in self.teams:
+            print 'invalid teamname', teamname
+            return None
         sel = self.teams[teamname]
         o = sel["AIClass"]().initialize(
             resource=sel["resource"],
             teamcolor=sel["teamcolor"],
+            teamname=teamname,
+            effectObjs=self.dispgroup['effectObjs'],
+            servermove=servermove,
+            gameObj=self
+        )
+        o.makeMember()
+        return o
+
+    def make1TeamCustom(self, teamname, aiclass, teamcolor, servermove):
+        o = aiclass().initialize(
+            teamcolor=teamcolor,
             teamname=teamname,
             effectObjs=self.dispgroup['effectObjs'],
             servermove=servermove,
@@ -1616,7 +1633,14 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         cmd = cmdDict.get('cmd')
         if cmd == 'makeTeam':
             tn = cmdDict.get('teamname')
-            o = self.make1Team(tn, servermove=False)
+            # o = self.make1Team(tn, servermove=False)
+            # if o in None:
+            o = self.make1TeamCustom(
+                teamname=tn,
+                aiclass=GameObjectGroup,
+                teamcolor=cmdDict.get('teamcolor'),
+                servermove=False
+            )
             self.dispgroup['objplayers'].append(o)
             conn['teamid'] = o.ID
             conn['teamname'] = tn
