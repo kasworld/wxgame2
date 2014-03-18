@@ -22,51 +22,8 @@ import Queue
 from euclid import Vector2
 #from wxgame2server import GameObjectGroup
 from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict, fromGzJson, Storage
-from wxgame2server import getFrameTime, putParams2Queue, ShootingGameMixin, I32sendrecv
+from wxgame2server import getFrameTime, putParams2Queue, ShootingGameMixin, I32sendrecv, TCPGameClient
 from wxgame2server import AI2 as GameObjectGroup
-
-# ================ tcp client =========
-
-
-class TCPGameClient(threading.Thread):
-
-    def __str__(self):
-        return self.conn.protocol.getStatInfo()
-
-    def __init__(self, connectTo):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect(connectTo)
-
-        protocol = I32sendrecv(sock)
-        self.conn = Storage({
-            'protocol': protocol,
-            'recvQueue': protocol.recvQueue,
-            'sendQueue': protocol.sendQueue,
-            'quit': False,
-        })
-        print self
-
-    def clientLoop(self):
-        try:
-            while self.conn.quit is not True:
-                self.conn.protocol.sendrecv()
-        except RuntimeError as e:
-            if e.args[0] != "socket connection broken":
-                raise RuntimeError(e)
-
-    def shutdown(self):
-        self.conn.quit = True
-        self.conn.protocol.sock.close()
-        print 'end connection'
-        print self
-
-
-def runService(connectTo):
-    client = TCPGameClient(connectTo)
-    client_thread = threading.Thread(target=client.clientLoop)
-    client_thread.start()
-    return client, client_thread
-# ================ tcp client end =========
 
 
 class AIGameClient(ShootingGameMixin, FPSlogicBase):
@@ -204,7 +161,7 @@ def runtest(destip, teamname):
     connectTo = destip, 22517
     print 'Client start, ', connectTo
 
-    client, client_thread = runService(connectTo)
+    client, client_thread = TCPGameClient(connectTo).runService()
 
     if teamname:
         teamcolor = (random.randint(0, 255),

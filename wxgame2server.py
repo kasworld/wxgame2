@@ -367,9 +367,46 @@ class I32sendrecv(object):
         # for select
         return self.sock.fileno()
 
+
+class TCPGameClient(threading.Thread):
+
+    def __str__(self):
+        return self.conn.protocol.getStatInfo()
+
+    def __init__(self, connectTo):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(connectTo)
+
+        protocol = I32sendrecv(sock)
+        self.conn = Storage({
+            'protocol': protocol,
+            'recvQueue': protocol.recvQueue,
+            'sendQueue': protocol.sendQueue,
+            'quit': False,
+        })
+        print self
+
+    def runService(self):
+        client_thread = threading.Thread(target=self.clientLoop)
+        client_thread.start()
+        return self, client_thread
+
+    def clientLoop(self):
+        try:
+            while self.conn.quit is not True:
+                self.conn.protocol.sendrecv()
+        except RuntimeError as e:
+            if e.args[0] != "socket connection broken":
+                raise RuntimeError(e)
+
+    def shutdown(self):
+        self.conn.quit = True
+        self.conn.protocol.sock.close()
+        print 'end connection'
+        print self
+
+
 # ======== game lib end ============
-
-
 def updateDict(dest, src):
     for k, v in src.iteritems():
         if isinstance(v, dict) and not isinstance(v, Storage):
@@ -1503,7 +1540,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.FPSTimerInit(getFrameTime, 60)
         ShootingGameMixin.initGroups(self, GameObjectGroup)
         # server team
-        for tn in ['team0', 'team1', 'team2', 'team3','team4', 'team5', 'team6', 'team7']:
+        for tn in ['team0', 'team1', 'team2', 'team3', 'team4', 'team5', 'team6', 'team7']:
             o = self.make1Team(tn, servermove=True)
             self.dispgroup['objplayers'].append(o)
         self.statObjN = Statistics()
