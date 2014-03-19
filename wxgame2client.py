@@ -8,24 +8,17 @@
 from wxgame2server import Version
 import random
 import math
-import traceback
 import os
 import os.path
 import sys
-import socket
-import select
 import signal
-import time
 import argparse
-import threading
-import Queue
 import wx
 import wx.grid
 import wx.lib.colourdb
 from euclid import Vector2
-#from wxgame2server import GameObjectGroup
-from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict, fromGzJson, Storage
-from wxgame2server import getFrameTime, putParams2Queue, ShootingGameMixin, I32sendrecv, TCPGameClient
+from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict, AIClientMixin
+from wxgame2server import getFrameTime, putParams2Queue, TCPGameClient
 from wxgame2server import AI2 as GameObjectGroup
 # ======== game lib ============
 
@@ -62,6 +55,13 @@ class GameResource(object):
         key = (name, args, str(kwds))
         if not self.rcsdict.get(key, None):
             self.rcsdict[key] = GameResource._loadBitmap2RotatedMemoryDCArray(
+                self.getcwdfilepath(name), *args, **kwds)
+        return self.rcsdict[key]
+
+    def loadBitmap2ColorScaledMemoryDCArray(self, name, *args, **kwds):
+        key = (name, args, str(kwds))
+        if not self.rcsdict.get(key, None):
+            self.rcsdict[key] = GameResource._loadBitmap2ColorScaledMemoryDCArray(
                 self.getcwdfilepath(name), *args, **kwds)
         return self.rcsdict[key]
 
@@ -117,6 +117,21 @@ class GameResource(object):
         # print angle, xlen , ylen , xnlen , ynlen , rsimage.GetWidth() ,
         # rsimage.GetHeight()
         return rsimage
+
+    @staticmethod
+    def makeScaleImage(image, w, h):
+        return image.Scale(w, h)
+
+    @staticmethod
+    def makeAdjustChannelsImage(image, rf, gf, bf):
+        return image.AdjustChannels(rf, gf, bf)
+
+    @staticmethod
+    def _loadBitmap2ColorScaledMemoryDCArray(imagefilename, w, h, rf, gf, bf):
+        fullimage = wx.Bitmap(imagefilename).ConvertToImage()
+        scaled = GameResource.makeScaleImage(fullimage, w, h)
+        colored = GameResource.makeAdjustChannelsImage(scaled, rf, gf, bf)
+        return [wx.MemoryDC(colored.ConvertToBitmap())]
 
     @staticmethod
     def _loadBitmap2RotatedMemoryDCArray(imagefilename, rangearg=(0, 360, 10), reverse = False, addreverse = False):
@@ -333,6 +348,14 @@ class ShootingGameObject(SpriteObj):
 
 class GameObjectDisplayGroup(GameObjectGroup):
 
+    def makeResourceArgs(self, objtype):
+        collisionCricle = self.spriteClass.typeDefaultDict[
+            objtype]['collisionCricle']
+        sizehint = 1000 * 2
+        r, g, b = self.teamcolor
+
+        return collisionCricle * sizehint, collisionCricle * sizehint, r / 128.0, g / 128.0, b / 128.0
+
     def loadResource(self):
         if self.resoueceReady is True:
             return
@@ -340,12 +363,27 @@ class GameObjectDisplayGroup(GameObjectGroup):
         if self.resource is None:
             # print self
             self.rcsdict = {
-                'bounceball': None,
-                'bullet': None,
-                'hommingbullet': None,
-                'superbullet': None,
-                'circularbullet': None,
-                'shield': None,
+                # 'bounceball': None,
+                'bounceball': [
+                    g_rcs.loadBitmap2ColorScaledMemoryDCArray(
+                        "grayball.png", *self.makeResourceArgs('bounceball')
+                    ),
+                ],
+                'bullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
+                    "grayball.png", *self.makeResourceArgs('bullet')
+                ),
+                'hommingbullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
+                    "grayball.png", *self.makeResourceArgs('hommingbullet')
+                ),
+                'superbullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
+                    "grayball.png", *self.makeResourceArgs('superbullet')
+                ),
+                'circularbullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
+                    "grayball.png", *self.makeResourceArgs('circularbullet')
+                ),
+                'shield': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
+                    "grayball.png", *self.makeResourceArgs('shield')
+                ),
                 'supershield': [
                     g_rcs.loadDirfiles2MemoryDCArray("earth"),
                     g_rcs.loadDirfiles2MemoryDCArray("earth", reverse=True)
@@ -401,10 +439,12 @@ class GameObjectDisplayGroup(GameObjectGroup):
         return self
 
 
-class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
+class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
 
     def __init__(self, *args, **kwds):
-        self.conn = kwds.pop('conn')
+        AIClientMixin.__init__(self, *args, **kwds)
+        del kwds['conn']
+
         wx.Control.__init__(self, *args, **kwds)
         self.Bind(wx.EVT_PAINT, self._OnPaint)
         self.Bind(wx.EVT_SIZE, self._OnSize)
@@ -412,17 +452,17 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         self.FPSTimerInit(getFrameTime, 60)
         self.SetBackgroundColour(wx.Colour(0x0, 0x0, 0x0))
 
-        ShootingGameMixin.initGroups(self, GameObjectDisplayGroup)
+        self.initGroups(GameObjectDisplayGroup, ShootingGameObject)
 
         self.dispgroup['backgroup'].append(
             self.makeBkObj()
         )
-        self.myteam = None
         self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
         print 'fps:', self.statFPS
-        print self.conn.protocol.getStatInfo()
+        if self.conn is not None:
+            print self.conn.protocol.getStatInfo()
 
     def makeBkObj(self):
         return BackGroundSplite().initialize(dict(
@@ -457,19 +497,19 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         self.dispgroup['frontgroup'].DrawToWxDC(pdc)
 
     def applyState(self, loadlist):
-        def makeGameObjectDisplayGroup(og):
+        def makeGameObjectDisplayGroup(groupdict):
             gog = GameObjectDisplayGroup(
             ).initialize(
-                resource=og['resource'],
-                gameObj=self
+                resource=groupdict['resource'],
+                gameObj=self,
+                spriteClass=ShootingGameObject,
+                teamcolor=groupdict['teamcolor'],
             ).deserialize(
-                og,
-                ShootingGameObject,
+                groupdict,
                 dict(
                     shapefn=ShootingGameObject.ShapeChange_None,
                 )
             )
-
             for o in gog:
                 rcs = gog.rcsdict[o.objtype]
                 if rcs is not None and o.objtype in ['bounceball', 'supershield']:
@@ -481,8 +521,8 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
 
         oldgog = self.dispgroup['objplayers']
         self.dispgroup['objplayers'] = []
-        for og in loadlist['objplayers']:
-            gog = makeGameObjectDisplayGroup(og)
+        for groupdict in loadlist['objplayers']:
+            gog = makeGameObjectDisplayGroup(groupdict)
 
             oldteam = self.getTeamByIDfromList(oldgog, gog.ID)
             if oldteam is not None:
@@ -499,83 +539,12 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSlogic):
         self.dispgroup['effectObjs'] = gog
         return
 
-    def makeClientAIAction(self):
-        # make AI action
-        if self.myteam is None:
-            return
-        aa = self.getTeamByID(self.myteam['teamid'])
-        if aa is None:
-            return
-        targets = [tt for tt in self.dispgroup[
-            'objplayers'] if tt.teamname != aa.teamname]
-
-        aa.prepareActions(
-            targets,
-            self.frameinfo['ThisFPS'],
-            self.thistick
-        )
-        actions = aa.SelectAction(targets, aa[0])
-
-        actionjson = self.serializeActions(actions)
-        # print actions, actionjson
-
-        putParams2Queue(
-            self.conn.sendQueue,
-            cmd='act',
-            team=self.myteam,
-            actions=actionjson,
-        )
-
-    def processCmd(self):
-
-        while not self.conn.recvQueue.empty():
-            try:
-                cmdDict = self.conn.recvQueue.get_nowait()
-                if cmdDict is None:
-                    break
-            except Queue.Empty:
-                break
-            except:
-                print traceback.format_exc()
-                break
-            cmdDict = fromGzJson(cmdDict)
-
-            cmd = cmdDict.get('cmd')
-
-            if cmd == 'gameState':
-                putParams2Queue(
-                    self.conn.sendQueue,
-                    cmd='reqState',
-                )
-                self.applyState(cmdDict)
-                if self.myteam is not None:
-                    self.makeClientAIAction()
-
-            elif cmd == 'actACK':
-                pass
-
-            elif cmd == 'teamInfo':
-                teamname = cmdDict.get('teamname')
-                teamid = cmdDict.get('teamid')
-                self.myteam = {
-                    'teamname': teamname,
-                    'teamid': teamid,
-                    'teamStartTime': self.thistick,
-                }
-                print 'joined', teamname, teamid
-                print self.myteam
-                putParams2Queue(
-                    self.conn.sendQueue,
-                    cmd='reqState',
-                )
-            else:
-                print 'unknown cmd', cmdDict
-
     def doFPSlogic(self):
         g_frameinfo.update(self.frameinfo)
         self.thistick = self.frameinfo['thistime']
 
-        self.processCmd()
+        if self.conn is not None:
+            self.processCmd()
         for gog in self.dispgroup['objplayers']:
             gog.AutoMoveByTime(self.thistick)
 
@@ -601,28 +570,38 @@ class MyFrame(wx.Frame):
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
         conn = kwds.pop('conn')
         wx.Frame.__init__(self, *args, **kwds)
-        self.panel_1 = ShootingGameClient(
+        self.gamePannel = ShootingGameClient(
             self, -1, size=(1000, 1000), conn = conn)
-        self.panel_1.framewindow = self
+        self.gamePannel.framewindow = self
         self.__set_properties()
         self.__do_layout()
 
     def __set_properties(self):
         self.SetTitle("wxGameFramework %s by kasworld" % Version)
-        self.panel_1.SetMinSize((1000, 1000))
+        self.gamePannel.SetMinSize((1000, 1000))
 
     def __do_layout(self):
         sizer_1 = wx.BoxSizer(wx.VERTICAL)
         sizer_2 = wx.BoxSizer(wx.HORIZONTAL)
-        sizer_2.Add(self.panel_1, 0, wx.FIXED_MINSIZE, 0)
+        sizer_2.Add(self.gamePannel, 0, wx.FIXED_MINSIZE, 0)
         sizer_1.Add(sizer_2, 1, wx.EXPAND, 0)
         self.SetSizer(sizer_1)
         sizer_1.Fit(self)
         self.Layout()
-        self.panel_1.SetFocus()
+        self.gamePannel.SetFocus()
 
 
-def runtest(destip, teamname):
+def runClient():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '-s', '--server'
+    )
+    parser.add_argument(
+        '-t', '--teamname'
+    )
+    args = parser.parse_args()
+    #runtest(args.server, args.teamname)
+    destip, teamname = args.server, args.teamname
     if destip is None:
         destip = 'localhost'
     connectTo = destip, 22517
@@ -664,13 +643,50 @@ def runtest(destip, teamname):
     sigstophandler(0, 0)
 
 
+def runResoourceTest():
+    def sigstophandler(signum, frame):
+        print 'User Termination'
+        sys.exit(0)
+    signal.signal(signal.SIGINT, sigstophandler)
+
+    app = wx.App()
+    frame_1 = MyFrame(
+        None, -1, "", size=(1000, 1000),
+        conn= None)
+    app.SetTopWindow(frame_1)
+    frame_1.Show()
+
+    # test code here
+    gobj = frame_1.gamePannel
+    gog = GameObjectDisplayGroup().initialize(
+        teamcolor=(
+            random.randint(0, 255),
+            random.randint(0, 255),
+            random.randint(0, 255)),
+        teamname = 'team1',
+        servermove = False,
+        aiclass = GameObjectDisplayGroup,
+        gameObj=gobj,
+        spriteClass=ShootingGameObject,
+        resource=None,
+    )
+    gobj.dispgroup['objplayers'].append(gog)
+
+    o = gog.spriteClass().initialize(dict(
+        objtype='bounceball',
+        group=gog,
+        shapefn=ShootingGameObject.ShapeChange_None,
+    ))
+    rcs = gog.rcsdict['bounceball']
+    rcs = random.choice(rcs)
+    o.loadResource(rcs)
+
+    gog.insert(0, o)
+
+    app.MainLoop()
+    print 'end client'
+    sigstophandler(0, 0)
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '-s', '--server'
-    )
-    parser.add_argument(
-        '-t', '--teamname'
-    )
-    args = parser.parse_args()
-    runtest(args.server, args.teamname)
+    runClient()
+    # runResoourceTest()

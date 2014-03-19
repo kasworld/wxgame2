@@ -868,7 +868,7 @@ class GameObjectGroup(list):
             )
         return rtn
 
-    def deserialize(self, jsondict, objclass, classargsdict):
+    def deserialize(self, jsondict, classargsdict):
         self.ID = jsondict['ID']
         self.teamname = jsondict['teamname']
         self.teamcolor = jsondict['teamcolor']
@@ -881,7 +881,7 @@ class GameObjectGroup(list):
                 group=self
             )
             argsdict.update(classargsdict)
-            self.append(objclass().initialize(argsdict))
+            self.append(self.spriteClass().initialize(argsdict))
         return self
 
     def setAttrs(self, defaultdict, kwds):
@@ -925,9 +925,15 @@ class GameObjectGroup(list):
             "teamcolor": None,
             "resource": None,
             "servermove": True,
-            'gameObj': None
+            'gameObj': None,
+            'spriteClass': None
         }
         self.setAttrs(defaultdict, kwds)
+
+        if self.gameObj is None:
+            print 'Warnning gameObj:', self.gameObj
+        if self.spriteClass is None:
+            print 'Warnning spriteClass:', self.spriteClass
 
         self.ID = getSerial()
         self.initStat()
@@ -962,7 +968,7 @@ class GameObjectGroup(list):
 
     # 이후는 SpriteObj를 편하게 생성하기위한 factory functions
     def AddBouncBall(self, newpos):
-        o = SpriteObj().initialize(dict(
+        o = self.spriteClass().initialize(dict(
             objtype='bounceball',
             pos=newpos,
             group=self,
@@ -973,7 +979,7 @@ class GameObjectGroup(list):
     def AddShield(self, target, startangle, anglespeed):
         diffvector = Vector2(0.03, 0).addAngle(
             2 * math.pi * startangle / 360.0)
-        o = SpriteObj().initialize(dict(
+        o = self.spriteClass().initialize(dict(
             pos=target.pos + diffvector,
             movefnargs={
                 "targetobj": target,
@@ -988,7 +994,7 @@ class GameObjectGroup(list):
 
     def AddSuperShield(self, target, expireFn):
         diffvector = Vector2(0.06, 0).addAngle(random2pi())
-        o = SpriteObj().initialize(dict(
+        o = self.spriteClass().initialize(dict(
             expireFn=expireFn,
             pos=target.pos + diffvector,
             movefnargs={
@@ -1004,7 +1010,7 @@ class GameObjectGroup(list):
 
     def AddCircularBullet2(self, centerpos):
         for a in range(0, 360, 5):
-            o = SpriteObj().initialize(dict(
+            o = self.spriteClass().initialize(dict(
                 pos=centerpos + Vector2.rect(0.03, math.radians(a)),
                 movevector=Vector2.rect(1, math.radians(a)),
                 objtype="circularbullet",
@@ -1014,7 +1020,7 @@ class GameObjectGroup(list):
         return self
 
     def AddTargetFiredBullet(self, startpos, tagetpos):
-        o = SpriteObj().initialize(dict(
+        o = self.spriteClass().initialize(dict(
             pos=startpos,
             movevector=Vector2.rect(1, (tagetpos - startpos).phase()),
             objtype="bullet",
@@ -1024,7 +1030,7 @@ class GameObjectGroup(list):
         return self
 
     def AddHommingBullet(self, startpos, target, expireFn=None):
-        o = SpriteObj().initialize(dict(
+        o = self.spriteClass().initialize(dict(
             expireFn=expireFn,
             pos=startpos,
             movevector=Vector2.rect(1, Vector2.phase(target.pos - startpos)),
@@ -1039,7 +1045,7 @@ class GameObjectGroup(list):
         return self
 
     def AddTargetSuperBullet(self, startpos, tagetpos):
-        o = SpriteObj().initialize(dict(
+        o = self.spriteClass().initialize(dict(
             pos=startpos,
             movevector=Vector2.rect(1, Vector2.phase(tagetpos - startpos)),
             objtype="superbullet",
@@ -1050,7 +1056,7 @@ class GameObjectGroup(list):
 
     def addSpriteExplosionEffect(self, src):
         self.append(
-            SpriteObj().initialize(dict(
+            self.spriteClass().initialize(dict(
                 pos=src.pos,
                 movevector=src.movevector / 4,
                 afterremovefn=None,
@@ -1060,7 +1066,7 @@ class GameObjectGroup(list):
 
     def addBallExplosionEffect(self, effectObjs, g1, b):
         self.append(
-            SpriteObj().initialize(dict(
+            self.spriteClass().initialize(dict(
                 pos=b.pos,
                 movevector=b.movevector / 4,
                 afterremovefn=self.addSpawnEffect,
@@ -1071,7 +1077,7 @@ class GameObjectGroup(list):
     def addSpawnEffect(self, effectObjs, g1):
         newpos = Vector2(random.random(), random.random())
         self.append(
-            SpriteObj().initialize(dict(
+            self.spriteClass().initialize(dict(
                 pos=newpos,
                 afterremovefn=g1.addMember,
                 afterremovefnarg=(newpos,),
@@ -1296,7 +1302,7 @@ class AI2(GameObjectGroup):
             src, "superbullet", neartarget, ((0.3, 0.1),))
         supertargetpos = self.getAimPos(
             src.pos,
-            SpriteObj.typeDefaultDict['superbullet']['movelimit'],
+            self.spriteClass.typeDefaultDict['superbullet']['movelimit'],
             supertarget
         ) if supertarget else None
 
@@ -1309,7 +1315,7 @@ class AI2(GameObjectGroup):
         )
         bullettargetpos = self.getAimPos(
             src.pos,
-            SpriteObj.typeDefaultDict['bullet']['movelimit'],
+            self.spriteClass.typeDefaultDict['bullet']['movelimit'],
             bullettarget
         ) if bullettarget else None
 
@@ -1375,11 +1381,14 @@ class AI2(GameObjectGroup):
 
 class ShootingGameMixin(object):
 
-    def initGroups(self, groupclass):
+    def initGroups(self, groupclass, spriteClass):
         self.dispgroup = {}
-        self.dispgroup['backgroup'] = groupclass().initialize(gameObj=self)
-        self.dispgroup['effectObjs'] = groupclass().initialize(gameObj=self)
-        self.dispgroup['frontgroup'] = groupclass().initialize(gameObj=self)
+        self.dispgroup['backgroup'] = groupclass().initialize(
+            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
+        self.dispgroup['effectObjs'] = groupclass().initialize(
+            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
+        self.dispgroup['frontgroup'] = groupclass().initialize(
+            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
         self.dispgroup['objplayers'] = []
 
     def getTeamByID(self, ID):
@@ -1491,9 +1500,106 @@ class ShootingGameMixin(object):
         return target, targetlen
 
 
+class AIClientMixin(ShootingGameMixin):
+
+    def __init__(self, *args, **kwds):
+        self.conn = kwds.pop('conn')
+        self.myteam = None
+
+    def makeClientAIAction(self):
+        # make AI action
+        if self.myteam is None:
+            return
+        aa = self.getTeamByID(self.myteam['teamid'])
+        if aa is None:
+            return
+        targets = [tt for tt in self.dispgroup[
+            'objplayers'] if tt.teamname != aa.teamname]
+
+        aa.prepareActions(
+            targets,
+            self.frameinfo['ThisFPS'],
+            self.thistick
+        )
+        actions = aa.SelectAction(targets, aa[0])
+
+        actionjson = self.serializeActions(actions)
+        # print actions, actionjson
+
+        putParams2Queue(
+            self.conn.sendQueue,
+            cmd='act',
+            team=self.myteam,
+            actions=actionjson,
+        )
+
+    def processCmd(self):
+
+        while not self.conn.recvQueue.empty():
+            try:
+                cmdDict = self.conn.recvQueue.get_nowait()
+                if cmdDict is None:
+                    break
+            except Queue.Empty:
+                break
+            except:
+                print traceback.format_exc()
+                break
+            cmdDict = fromGzJson(cmdDict)
+
+            cmd = cmdDict.get('cmd')
+
+            if cmd == 'gameState':
+                putParams2Queue(
+                    self.conn.sendQueue,
+                    cmd='reqState',
+                )
+                self.applyState(cmdDict)
+                if self.myteam is not None:
+                    self.makeClientAIAction()
+
+            elif cmd == 'actACK':
+                pass
+
+            elif cmd == 'teamInfo':
+                teamname = cmdDict.get('teamname')
+                teamid = cmdDict.get('teamid')
+                self.myteam = {
+                    'teamname': teamname,
+                    'teamid': teamid,
+                    'teamStartTime': self.thistick,
+                }
+                print 'joined', teamname, teamid
+                print self.myteam
+                putParams2Queue(
+                    self.conn.sendQueue,
+                    cmd='reqState',
+                )
+            else:
+                print 'unknown cmd', cmdDict
+
+
 class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
-    def make1Team(self, teamname, servermove):
+    def __init__(self, *args, **kwds):
+        def setAttr(name, defaultvalue):
+            self.__dict__[name] = kwds.pop(name, defaultvalue)
+            return self.__dict__[name]
+
+        self.clientCommDict = kwds.pop('clientCommDict')
+        self.FPSTimerInit(getFrameTime, 60)
+        ShootingGameMixin.initGroups(self, GameObjectGroup, SpriteObj)
+        # server team
+        for tn in ['team0', 'team1', 'team2', 'team3', 'team4', 'team5', 'team6', 'team7']:
+            o = self.make1Team(SpriteObj,  tn, servermove=True)
+            self.dispgroup['objplayers'].append(o)
+        self.statObjN = Statistics()
+        self.statCmpN = Statistics()
+        self.statPacketL = Statistics()
+        print 'end init'
+        self.registerRepeatFn(self.prfps, 1)
+
+    def make1Team(self, spriteClass, teamname, servermove):
         teams = {
             #'team0': {"AIClass": GameObjectGroup, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
             'team0': {"AIClass": AI2, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
@@ -1515,39 +1621,23 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             teamname=teamname,
             effectObjs=self.dispgroup['effectObjs'],
             servermove=servermove,
-            gameObj=self
+            gameObj=self,
+            spriteClass=spriteClass
         )
         o.makeMember()
         return o
 
-    def make1TeamCustom(self, teamname, aiclass, teamcolor, servermove):
+    def make1TeamCustom(self, teamname, aiclass, spriteClass, teamcolor, servermove):
         o = aiclass().initialize(
             teamcolor=teamcolor,
             teamname=teamname,
             effectObjs=self.dispgroup['effectObjs'],
             servermove=servermove,
-            gameObj=self
+            gameObj=self,
+            spriteClass=spriteClass
         )
         o.makeMember()
         return o
-
-    def __init__(self, *args, **kwds):
-        def setAttr(name, defaultvalue):
-            self.__dict__[name] = kwds.pop(name, defaultvalue)
-            return self.__dict__[name]
-
-        self.clientCommDict = kwds.pop('clientCommDict')
-        self.FPSTimerInit(getFrameTime, 60)
-        ShootingGameMixin.initGroups(self, GameObjectGroup)
-        # server team
-        for tn in ['team0', 'team1', 'team2', 'team3', 'team4', 'team5', 'team6', 'team7']:
-            o = self.make1Team(tn, servermove=True)
-            self.dispgroup['objplayers'].append(o)
-        self.statObjN = Statistics()
-        self.statCmpN = Statistics()
-        self.statPacketL = Statistics()
-        print 'end init'
-        self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
         print 'objs:', self.statObjN
@@ -1676,7 +1766,8 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                 teamname=tn,
                 aiclass=GameObjectGroup,
                 teamcolor=cmdDict.get('teamcolor'),
-                servermove=False
+                servermove=False,
+                spriteClass=SpriteObj
             )
             self.dispgroup['objplayers'].append(o)
             conn['teamid'] = o.ID

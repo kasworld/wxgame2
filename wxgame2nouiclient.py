@@ -5,36 +5,23 @@
     wxGameFramework
     Copyright 2011,2013,1014 kasw <kasworld@gmail.com>
 """
-from wxgame2server import Version
 import random
-import math
-import traceback
-import os
-import os.path
 import sys
-import socket
-import select
 import signal
 import time
 import argparse
-import threading
-import Queue
-from euclid import Vector2
-#from wxgame2server import GameObjectGroup
-from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict, fromGzJson, Storage
-from wxgame2server import getFrameTime, putParams2Queue, ShootingGameMixin, I32sendrecv, TCPGameClient
+from wxgame2server import SpriteObj, FPSlogicBase, AIClientMixin
+from wxgame2server import getFrameTime, putParams2Queue, TCPGameClient
 from wxgame2server import AI2 as GameObjectGroup
 
 
-class AIGameClient(ShootingGameMixin, FPSlogicBase):
+class AIGameClient(AIClientMixin, FPSlogicBase):
 
     def __init__(self, *args, **kwds):
-        self.conn = kwds.pop('conn')
+        AIClientMixin.__init__(self, *args, **kwds)
 
         self.FPSTimerInit(getFrameTime, 60)
-        ShootingGameMixin.initGroups(self, GameObjectGroup)
-
-        self.myteam = None
+        AIClientMixin.initGroups(self, GameObjectGroup, SpriteObj)
         self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
@@ -46,10 +33,10 @@ class AIGameClient(ShootingGameMixin, FPSlogicBase):
             gog = GameObjectGroup(
             ).initialize(
                 resource=og['resource'],
-                gameObj=self
+                gameObj=self,
+                spriteClass=SpriteObj
             ).deserialize(
                 og,
-                SpriteObj,
                 {}
             )
             return gog
@@ -73,78 +60,6 @@ class AIGameClient(ShootingGameMixin, FPSlogicBase):
             self.dispgroup['objplayers'].append(gog)
         return
 
-    def makeClientAIAction(self):
-        # make AI action
-        if self.myteam is None:
-            return
-        aa = self.getTeamByID(self.myteam['teamid'])
-        if aa is None:
-            return
-        targets = [tt for tt in self.dispgroup[
-            'objplayers'] if tt.teamname != aa.teamname]
-
-        aa.prepareActions(
-            targets,
-            self.frameinfo['ThisFPS'],
-            self.thistick
-        )
-        actions = aa.SelectAction(targets, aa[0])
-
-        actionjson = self.serializeActions(actions)
-        # print actions, actionjson
-
-        putParams2Queue(
-            self.conn.sendQueue,
-            cmd='act',
-            team=self.myteam,
-            actions=actionjson,
-        )
-
-    def processCmd(self):
-
-        while not self.conn.recvQueue.empty():
-            try:
-                cmdDict = self.conn.recvQueue.get_nowait()
-                if cmdDict is None:
-                    break
-            except Queue.Empty:
-                break
-            except:
-                print traceback.format_exc()
-                break
-            cmdDict = fromGzJson(cmdDict)
-
-            cmd = cmdDict.get('cmd')
-
-            if cmd == 'gameState':
-                putParams2Queue(
-                    self.conn.sendQueue,
-                    cmd='reqState',
-                )
-                self.applyState(cmdDict)
-                if self.myteam is not None:
-                    self.makeClientAIAction()
-
-            elif cmd == 'actACK':
-                pass
-
-            elif cmd == 'teamInfo':
-                teamname = cmdDict.get('teamname')
-                teamid = cmdDict.get('teamid')
-                self.myteam = {
-                    'teamname': teamname,
-                    'teamid': teamid,
-                    'teamStartTime': self.thistick,
-                }
-                print 'joined', teamname, teamid
-                print self.myteam
-                putParams2Queue(
-                    self.conn.sendQueue,
-                    cmd='reqState',
-                )
-            else:
-                print 'unknown cmd', cmdDict
-
     def doFPSlogic(self):
         self.thistick = self.frameinfo['thistime']
         self.processCmd()
@@ -155,7 +70,18 @@ class AIGameClient(ShootingGameMixin, FPSlogicBase):
             time.sleep(self.newdur / 1000.)
 
 
-def runtest(destip, teamname):
+def runClient():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '-s', '--server'
+    )
+    parser.add_argument(
+        '-t', '--teamname'
+    )
+    args = parser.parse_args()
+    #runtest(args.server, args.teamname)
+    destip, teamname = args.server, args.teamname
+
     if destip is None:
         destip = 'localhost'
     connectTo = destip, 22517
@@ -193,14 +119,5 @@ def runtest(destip, teamname):
     print 'end client'
     sigstophandler(0, 0)
 
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '-s', '--server'
-    )
-    parser.add_argument(
-        '-t', '--teamname'
-    )
-    args = parser.parse_args()
-    runtest(args.server, args.teamname)
+    runClient()
