@@ -860,15 +860,35 @@ class GameObjectGroup(list):
             'objs': []
         }
         for o in self:
-            rtn['objs'].append(
-                (o.ID, o.objtype, (o.pos.x, o.pos.y),
-                 (o.movevector.x, o.movevector.y))
-            )
+            # if o.objtype in ['shield', 'supershield']:
+            #     rtn['objs'].append(
+            #         (o.ID, o.objtype, (o.pos.x, o.pos.y),
+            #          (o.movevector.x, o.movevector.y), o.movefnargs['anglespeed'])
+            #     )
+            # else:
+                rtn['objs'].append(
+                    (o.ID, o.objtype, (o.pos.x, o.pos.y),
+                     (o.movevector.x, o.movevector.y))
+                )
         return rtn
 
     def deserialize(self, jsondict, classargsdict):
         self.ID = jsondict['ID']
-        for objid, objtype, objpos, objmovevector in jsondict['objs']:
+        for o in jsondict['objs']:
+            objid, objtype, objpos, objmovevector = o[:4]
+            # if objtype in ['shield', 'supershield'] and self.hasBounceBall():
+            #     argsdict = dict(
+            #         objtype=objtype,
+            #         pos=Vector2(*objpos),
+            #         movevector=Vector2(*objmovevector),
+            #         movefnargs={
+            #             "targetobj": self[0],
+            #             "anglespeed": o[4],
+            #             'diffvector': self[0].pos - Vector2(*objpos),
+            #         },
+            #         group=self
+            #     )
+            # else:
             argsdict = dict(
                 objtype=objtype,
                 pos=Vector2(*objpos),

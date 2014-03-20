@@ -388,34 +388,20 @@ class GameObjectDisplayGroup(GameObjectGroup):
 
         self.rcsdict = {
             # 'bounceball': None,
-            'bounceball': [
-                g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                    "grayball.png", *self.makeResourceArgs('bounceball')
-                ),
-            ],
+            'bounceball': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
+            "grayball.png", *self.makeResourceArgs('bounceball')),
             'bullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                "grayball.png", *self.makeResourceArgs('bullet')
-            ),
+                "grayball.png", *self.makeResourceArgs('bullet')),
             'hommingbullet': g_rcs.loadBitmap2RotatedColorScaledMemoryDCArray(
-                "spiral.png", *self.makeResourceArgs('hommingbullet')
-            ),
+                "spiral.png", *self.makeResourceArgs('hommingbullet')),
             'superbullet': g_rcs.loadBitmap2RotatedColorScaledMemoryDCArray(
-                "spiral.png", *self.makeResourceArgs('superbullet')
-            ),
+                "spiral.png", *self.makeResourceArgs('superbullet')),
             'circularbullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                "grayball.png", *self.makeResourceArgs('circularbullet')
-            ),
+                "grayball.png", *self.makeResourceArgs('circularbullet')),
             'shield': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                "grayball.png", *self.makeResourceArgs('shield')
-            ),
-            'supershield': [
-                g_rcs.loadBitmap2RotatedColorScaledMemoryDCArray(
-                    "spiral.png", *self.makeResourceArgs('supershield')
-                ),
-                g_rcs.loadBitmap2RotatedColorScaledMemoryDCArray(
-                    "spiral.png", *self.makeResourceArgs('supershield'), reverse=True
-                ),
-            ],
+                "grayball.png", *self.makeResourceArgs('shield')),
+            'supershield': g_rcs.loadBitmap2RotatedColorScaledMemoryDCArray(
+                "spiral.png", *self.makeResourceArgs('supershield')),
             'spriteexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
                 "EvilTrace.png", 1, 8),
             'ballexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
@@ -510,8 +496,6 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
             )
             for o in gog:
                 rcs = gog.rcsdict[o.objtype]
-                if rcs is not None and o.objtype in ['bounceball', 'supershield']:
-                    rcs = random.choice(rcs)
                 o.loadResource(rcs)
             return gog
 
