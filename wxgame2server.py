@@ -1589,43 +1589,25 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.clientCommDict = kwds.pop('clientCommDict')
         self.FPSTimerInit(getFrameTime, 60)
         ShootingGameMixin.initGroups(self, GameObjectGroup, SpriteObj)
-        # server team
-        for tn in ['team0', 'team1', 'team2', 'team3', 'team4', 'team5', 'team6', 'team7']:
-            o = self.make1Team(SpriteObj,  tn, servermove=True)
+
+        for i in range(8):
+            o = self.make1TeamCustom(
+                teamname='server%d' % i,
+                aiclass=AI2,
+                teamcolor=(
+                    random.randint(0, 255),
+                    random.randint(0, 255),
+                    random.randint(0, 255)),
+                servermove=True,
+                spriteClass=SpriteObj
+            )
             self.dispgroup['objplayers'].append(o)
+
         self.statObjN = Statistics()
         self.statCmpN = Statistics()
         self.statPacketL = Statistics()
         print 'end init'
         self.registerRepeatFn(self.prfps, 1)
-
-    def make1Team(self, spriteClass, teamname, servermove):
-        teams = {
-            #'team0': {"AIClass": GameObjectGroup, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
-            'team0': {"AIClass": AI2, "resource": "white", "teamcolor": (0xff, 0xff, 0xff)},
-            'team1': {"AIClass": AI2, "resource": "orange", "teamcolor": (0xff, 0x7f, 0x00)},
-            'team2': {"AIClass": AI2, "resource": "purple", "teamcolor": (0xff, 0x00, 0xff)},
-            'team3': {"AIClass": AI2, "resource": "grey", "teamcolor": (0x7f, 0x7f, 0x7f)},
-            'team4': {"AIClass": AI2, "resource": "red", "teamcolor": (0xff, 0x00, 0x00)},
-            'team5': {"AIClass": AI2, "resource": "yellow", "teamcolor": (0xff, 0xff, 0x00)},
-            'team6': {"AIClass": AI2, "resource": "green", "teamcolor": (0x00, 0xff, 0x00)},
-            'team7': {"AIClass": AI2, "resource": "blue", "teamcolor": (0x00, 0xff, 0xff)},
-        }
-        if teamname not in teams:
-            print 'invalid teamname', teamname
-            return None
-        sel = teams[teamname]
-        o = sel["AIClass"]().initialize(
-            resource=sel["resource"],
-            teamcolor=sel["teamcolor"],
-            teamname=teamname,
-            effectObjs=self.dispgroup['effectObjs'],
-            servermove=servermove,
-            gameObj=self,
-            spriteClass=spriteClass
-        )
-        o.makeMember()
-        return o
 
     def make1TeamCustom(self, teamname, aiclass, spriteClass, teamcolor, servermove):
         o = aiclass().initialize(
@@ -1760,8 +1742,6 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         cmd = cmdDict.get('cmd')
         if cmd == 'makeTeam':
             tn = cmdDict.get('teamname')
-            # o = self.make1Team(tn, servermove=False)
-            # if o in None:
             o = self.make1TeamCustom(
                 teamname=tn,
                 aiclass=GameObjectGroup,

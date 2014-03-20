@@ -65,6 +65,13 @@ class GameResource(object):
                 self.getcwdfilepath(name), *args, **kwds)
         return self.rcsdict[key]
 
+    def loadBitmap2RotatedColorScaledMemoryDCArray(self, name, *args, **kwds):
+        key = (name, args, str(kwds))
+        if not self.rcsdict.get(key, None):
+            self.rcsdict[key] = GameResource._loadBitmap2RotatedColorScaledMemoryDCArray(
+                self.getcwdfilepath(name), *args, **kwds)
+        return self.rcsdict[key]
+
     @staticmethod
     def _loadBitmap2MemoryDCArray(bitmapfilename, xslicenum=1, yslicenum=1, totalslice=10000, yfirst=True, reverse=False, addreverse=False):
         rtn = []
@@ -140,6 +147,25 @@ class GameResource(object):
         for a in range(*rangearg):
             rtn.append(wx.MemoryDC(
                 GameResource.makeRotatedImage(fullimage, a).ConvertToBitmap()
+            ))
+        if reverse:
+            rtn.reverse()
+        if addreverse:
+            rrtn = rtn[:]
+            rrtn.reverse()
+            rtn += rrtn
+        return rtn
+
+    @staticmethod
+    def _loadBitmap2RotatedColorScaledMemoryDCArray(imagefilename,w, h, rf, gf, bf, rangearg=(0, 360, 10), reverse = False, addreverse = False):
+        rtn = []
+        oriimage = wx.Bitmap(imagefilename).ConvertToImage()
+        scaled = GameResource.makeScaleImage(oriimage, w, h)
+        colored = GameResource.makeAdjustChannelsImage(scaled, rf, gf, bf)
+
+        for a in range(*rangearg):
+            rtn.append(wx.MemoryDC(
+                GameResource.makeRotatedImage(colored, a).ConvertToBitmap()
             ))
         if reverse:
             rtn.reverse()
@@ -360,69 +386,43 @@ class GameObjectDisplayGroup(GameObjectGroup):
         if self.resoueceReady is True:
             return
 
-        if self.resource is None:
-            # print self
-            self.rcsdict = {
-                # 'bounceball': None,
-                'bounceball': [
-                    g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                        "grayball.png", *self.makeResourceArgs('bounceball')
-                    ),
-                ],
-                'bullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                    "grayball.png", *self.makeResourceArgs('bullet')
+        self.rcsdict = {
+            # 'bounceball': None,
+            'bounceball': [
+                g_rcs.loadBitmap2ColorScaledMemoryDCArray(
+                    "grayball.png", *self.makeResourceArgs('bounceball')
                 ),
-                'hommingbullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                    "grayball.png", *self.makeResourceArgs('hommingbullet')
+            ],
+            'bullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
+                "grayball.png", *self.makeResourceArgs('bullet')
+            ),
+            'hommingbullet': g_rcs.loadBitmap2RotatedColorScaledMemoryDCArray(
+                "spiral.png", *self.makeResourceArgs('hommingbullet')
+            ),
+            'superbullet': g_rcs.loadBitmap2RotatedColorScaledMemoryDCArray(
+                "spiral.png", *self.makeResourceArgs('superbullet')
+            ),
+            'circularbullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
+                "grayball.png", *self.makeResourceArgs('circularbullet')
+            ),
+            'shield': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
+                "grayball.png", *self.makeResourceArgs('shield')
+            ),
+            'supershield': [
+                g_rcs.loadBitmap2RotatedColorScaledMemoryDCArray(
+                    "spiral.png", *self.makeResourceArgs('supershield')
                 ),
-                'superbullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                    "grayball.png", *self.makeResourceArgs('superbullet')
+                g_rcs.loadBitmap2RotatedColorScaledMemoryDCArray(
+                    "spiral.png", *self.makeResourceArgs('supershield'), reverse=True
                 ),
-                'circularbullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                    "grayball.png", *self.makeResourceArgs('circularbullet')
-                ),
-                'shield': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                    "grayball.png", *self.makeResourceArgs('shield')
-                ),
-                'supershield': [
-                    g_rcs.loadDirfiles2MemoryDCArray("earth"),
-                    g_rcs.loadDirfiles2MemoryDCArray("earth", reverse=True)
-                ],
-                'spriteexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
-                    "EvilTrace.png", 1, 8),
-                'ballexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
-                    "explo1e.png", 8, 1),
-                'spawneffect': g_rcs.loadBitmap2MemoryDCArray(
-                    "spawn.png", 1, 6, reverse=True),
-            }
-        else:
-            self.rcsdict = {
-                'bounceball': [
-                    g_rcs.loadBitmap2MemoryDCArray(
-                        "%sball.gif" % self.resource),
-                    g_rcs.loadBitmap2MemoryDCArray(
-                        "%sball1.gif" % self.resource, reverse=True)
-                ],
-                'bullet': g_rcs.loadBitmap2MemoryDCArray(
-                    "%sbullet.png" % self.resource),
-                'hommingbullet': g_rcs.loadBitmap2MemoryDCArray("ring.png", 4, 4),
-                'superbullet': g_rcs.loadBitmap2MemoryDCArray(
-                    "%ssuper.png" % self.resource),
-                'circularbullet': g_rcs.loadBitmap2MemoryDCArray(
-                    "%sbullet1.png" % self.resource),
-                'shield': g_rcs.loadBitmap2MemoryDCArray(
-                    "%sbullet1.png" % self.resource),
-                'supershield': [
-                    g_rcs.loadDirfiles2MemoryDCArray("earth"),
-                    g_rcs.loadDirfiles2MemoryDCArray("earth", reverse=True)
-                ],
-                'spriteexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
-                    "EvilTrace.png", 1, 8),
-                'ballexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
-                    "explo1e.png", 8, 1),
-                'spawneffect': g_rcs.loadBitmap2MemoryDCArray(
-                    "spawn.png", 1, 6, reverse=True),
-            }
+            ],
+            'spriteexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
+                "EvilTrace.png", 1, 8),
+            'ballexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
+                "explo1e.png", 8, 1),
+            'spawneffect': g_rcs.loadBitmap2MemoryDCArray(
+                "spawn.png", 1, 6, reverse=True),
+        }
         self.resoueceReady = True
 
     def initialize(self, *args, **kwds):
