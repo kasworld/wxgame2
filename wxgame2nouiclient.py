@@ -29,14 +29,15 @@ class AIGameClient(AIClientMixin, FPSlogicBase):
         print self.conn.protocol.getStatInfo()
 
     def applyState(self, loadlist):
-        def makeGameObjectDisplayGroup(og):
+        def makeGameObjectDisplayGroup(groupdict):
             gog = GameObjectGroup(
             ).initialize(
-                resource=og['resource'],
+                teamcolor=groupdict['teamcolor'],
+                teamname=groupdict['teamname'],
                 gameObj=self,
                 spriteClass=SpriteObj
             ).deserialize(
-                og,
+                groupdict,
                 {}
             )
             return gog

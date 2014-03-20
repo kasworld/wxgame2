@@ -157,7 +157,7 @@ class GameResource(object):
         return rtn
 
     @staticmethod
-    def _loadBitmap2RotatedColorScaledMemoryDCArray(imagefilename,w, h, rf, gf, bf, rangearg=(0, 360, 10), reverse = False, addreverse = False):
+    def _loadBitmap2RotatedColorScaledMemoryDCArray(imagefilename, w, h, rf, gf, bf, rangearg=(0, 360, 10), reverse = False, addreverse = False):
         rtn = []
         oriimage = wx.Bitmap(imagefilename).ConvertToImage()
         scaled = GameResource.makeScaleImage(oriimage, w, h)
@@ -500,15 +500,13 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
         def makeGameObjectDisplayGroup(groupdict):
             gog = GameObjectDisplayGroup(
             ).initialize(
-                resource=groupdict['resource'],
+                teamcolor=groupdict['teamcolor'],
+                teamname=groupdict['teamname'],
                 gameObj=self,
                 spriteClass=ShootingGameObject,
-                teamcolor=groupdict['teamcolor'],
             ).deserialize(
                 groupdict,
-                dict(
-                    shapefn=ShootingGameObject.ShapeChange_None,
-                )
+                {}
             )
             for o in gog:
                 rcs = gog.rcsdict[o.objtype]
@@ -668,7 +666,6 @@ def runResoourceTest():
         aiclass = GameObjectDisplayGroup,
         gameObj=gobj,
         spriteClass=ShootingGameObject,
-        resource=None,
     )
     gobj.dispgroup['objplayers'].append(gog)
 

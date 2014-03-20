@@ -844,11 +844,10 @@ class GameObjectGroup(list):
     """
 
     def __str__(self):
-        return '[{}:{}:{}:{}:{}:{}]'.format(
+        return '[{}:{}:{}:{}:{}]'.format(
             self.__class__.__name__,
             self.teamname,
             self.ID,
-            self.resource,
             self.teamcolor,
             len(self)
         )
@@ -857,7 +856,6 @@ class GameObjectGroup(list):
         rtn = {
             'ID': self.ID,
             'teamname': self.teamname,
-            'resource': self.resource,
             'teamcolor': self.teamcolor,
             'objs': []
         }
@@ -870,9 +868,6 @@ class GameObjectGroup(list):
 
     def deserialize(self, jsondict, classargsdict):
         self.ID = jsondict['ID']
-        self.teamname = jsondict['teamname']
-        self.teamcolor = jsondict['teamcolor']
-        self.resource = jsondict['resource']
         for objid, objtype, objpos, objmovevector in jsondict['objs']:
             argsdict = dict(
                 objtype=objtype,
@@ -923,7 +918,6 @@ class GameObjectGroup(list):
 
             "teamname": None,
             "teamcolor": None,
-            "resource": None,
             "servermove": True,
             'gameObj': None,
             'spriteClass': None
@@ -1642,7 +1636,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             else:
                 teamscore[j.teamname] = dict(
                     teamscore=j.statistic['teamscore'],
-                    color=j.resource if j.resource else j.teamcolor,
+                    color=j.teamcolor,
                     ai=j.__class__.__name__,
                     member=1,
                     objcount=len(j)
