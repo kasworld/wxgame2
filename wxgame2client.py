@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 """ wxgame client
@@ -13,6 +13,7 @@ import os.path
 import sys
 import signal
 import argparse
+import traceback
 import wx
 import wx.grid
 import wx.lib.colourdb
@@ -308,6 +309,7 @@ class ShootingGameObject(SpriteObj):
             "afterremovefnarg": (),
         }
         updateDict(self, argsdict)
+        updateDict(self, args)
 
         self.baseCollisionCricle = self.collisionCricle
         self.registerAutoMoveFn(self.shapefn, [])
@@ -325,20 +327,18 @@ class ShootingGameObject(SpriteObj):
             self.shapefnargs['dcsize'] = self.shapefnargs[
                 'memorydcs'][0].GetSizeTuple()
             self.currentimagenumber = self.shapefnargs['startimagenumber']
-            self.shapefnargs['animationfps'] = self.shapefnargs.get(
-                'animationfps', 10)
+            self.shapefnargs['animationfps'] = self.shapefnargs[
+                'animationfps']
 
         return self
 
-    def ShapeChange_None(self, args):
+    def ShapeChange_None(self):
         pass
 
-    def changeImage(self, args):
+    def changeImage(self):
         if self.shapefnargs['memorydcs']:
-            self.currentimagenumber = int(
-                self.shapefnargs['startimagenumber'] + (
-                    self.thistick - self.createdTime
-                ) * self.shapefnargs['animationfps']) % len(self.shapefnargs['memorydcs'])
+            self.currentimagenumber = int(self.shapefnargs['startimagenumber'] + self.getAge(
+                self.thistick) * self.shapefnargs['animationfps']) % len(self.shapefnargs['memorydcs'])
 
     def Draw_Shape(self, pdc, clientsize, sizehint):
         pdc.SetPen(self.shapefnargs['pen'])
@@ -350,8 +350,8 @@ class ShootingGameObject(SpriteObj):
         )
 
     def Draw_MDC(self, pdc, clientsize, sizehint):
-        self.currentimagenumber = g_frameinfo[
-            'stat'].datadict['count'] % len(self.shapefnargs['memorydcs'])
+        # self.currentimagenumber = g_frameinfo[
+        #     'stat'].datadict['count'] % len(self.shapefnargs['memorydcs'])
         pdc.Blit(
             clientsize.x * self.pos.x - self.shapefnargs['dcsize'][0] / 2,
             clientsize.y * self.pos.y - self.shapefnargs['dcsize'][1] / 2,
@@ -443,12 +443,31 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
         self.dispgroup['backgroup'].append(
             self.makeBkObj()
         )
+        for i in range(10):
+            self.dispgroup['frontgroup'].append(self.makeFrontObj())
+
         self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
         print 'fps:', self.statFPS
         if self.conn is not None:
             print self.conn.protocol.getStatInfo()
+
+    def makeFrontObj(self):
+        o = ShootingGameObject().initialize(dict(
+            objtype="cloud",
+            pos=Vector2(random.random(), random.random()),
+            movevector=Vector2.rect(0.1, random2pi()),
+            group=self.dispgroup['frontgroup'],
+            movefnargs={"accelvector": Vector2(1, 0)},
+            shapefnargs={
+                "animationfps": 0,
+            }
+        ))
+        o.loadResource(
+            [random.choice(g_rcs.loadBitmap2MemoryDCArray("Clouds.png", 1, 4))]
+        )
+        return o
 
     def makeBkObj(self):
         return BackGroundSplite().initialize(dict(
@@ -540,8 +559,9 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
 
         self.dispgroup['frontgroup'].AutoMoveByTime(self.thistick)
         for o in self.dispgroup['frontgroup']:
-            if random.random() < 0.001:
+            if random.random() < 0.01:
                 o.setAccelVector(o.getAccelVector().addAngle(random2pi()))
+            # print o #, o.movefnargs
 
         self.Refresh(False)
 

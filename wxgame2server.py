@@ -453,6 +453,7 @@ class SpriteObj(Storage):
         'lastAutoMoveTick': 0,
         'autoMoveFns': [],
         'fireTimeDict': {},
+        'difftick': 0,
         'thistick': 0,
     }
 
@@ -547,31 +548,30 @@ class SpriteObj(Storage):
     def getAge(self, tick):
         return tick - self.createdTime
 
-    def getLifeRate(self, tick):
-        return (tick - self.createdTime) / self.secToLifeEnd
-
     def AutoMoveByTime(self, thistick):
         if not self.enabled:
             return
+        self.difftick = (thistick - self.lastAutoMoveTick)
+        if self.difftick == 0:
+            return
         self.thistick = thistick
-        if self.secToLifeEnd > 0 and self.createdTime + self.secToLifeEnd < self.thistick:
+        if self.secToLifeEnd > 0 and self.createdTime + self.secToLifeEnd < thistick:
             if self.expireFn:
                 self.expireFn(self)
             self.enabled = False
             return  # to old too move
 
         for fn, args in self.autoMoveFns:
-            fn(self, args)
-        self.lastAutoMoveTick = self.thistick
+            fn(self)
+        self.lastAutoMoveTick = thistick
 
-    def Move_byMoveVector(self, args):
+    def Move_byMoveVector(self):
         """실제로 pos를 변경하는 함수."""
-        dur = (self.thistick - self.lastAutoMoveTick)
         if abs(self.movevector) > self.movelimit:
             self.movevector = self.movevector.normalized() * self.movelimit
-        self.pos += self.movevector * dur
+        self.pos += self.movevector * self.difftick
 
-    def WallAction_Bounce(self, args):
+    def WallAction_Bounce(self):
         movevector = self.movevector
         rtn = self.CheckWallCollision("Outer")
         while rtn:
@@ -600,11 +600,11 @@ class SpriteObj(Storage):
                 self.movevector = movevector
             rtn = self.CheckWallCollision("Outer")
 
-    def WallAction_Remove(self, args):
+    def WallAction_Remove(self):
         if self.CheckWallCollision("Inner"):
             self.enabled = False
 
-    def WallAction_Wrap(self, args):
+    def WallAction_Wrap(self):
         rtn = self.CheckWallCollision("Center")
         if "Right" in rtn:
             self.pos = Vector2(0.0, self.pos.y)
@@ -615,58 +615,70 @@ class SpriteObj(Storage):
         elif "Top" in rtn:
             self.pos = Vector2(self.pos.x, 1.0)
 
-    def WallAction_Stop(self, args):
+    def WallAction_Wrap_Outer(self):
+        rtn = self.CheckWallCollision("Outer")
+        if "Right" in rtn:
+            self.pos = Vector2(0.0, self.pos.y)
+        elif "Left" in rtn:
+            self.pos = Vector2(1.0, self.pos.y)
+        elif "Bottom" in rtn:
+            self.pos = Vector2(self.pos.x, 0.0)
+        elif "Top" in rtn:
+            self.pos = Vector2(self.pos.x, 1.0)
+
+    def WallAction_Wrap_Inner(self):
+        rtn = self.CheckWallCollision("Inner")
+        if "Right" in rtn:
+            self.pos = Vector2(0.0, self.pos.y)
+        elif "Left" in rtn:
+            self.pos = Vector2(1.0, self.pos.y)
+        elif "Bottom" in rtn:
+            self.pos = Vector2(self.pos.x, 0.0)
+        elif "Top" in rtn:
+            self.pos = Vector2(self.pos.x, 1.0)
+
+    def WallAction_Stop(self):
         if self.CheckWallCollision("Outer"):
             self.movefn = SpriteObj.Move_NoAccel
 
-    def WallAction_None(self, args):
+    def WallAction_None(self):
         pass
 
-    def Move_Sin(self, args):
-        dur = (self.thistick - self.lastAutoMoveTick)
-        self.movevector = Vector2.rect(0.005, dur * 10)
+    def Move_Sin(self):
+        self.movevector = Vector2.rect(0.005, self.difftick * 10)
 
-    def Move_NoAccel(self, args):
+    def Move_NoAccel(self):
         pass
 
-    def Move_Circle(self, args):
-        dur = (self.thistick - self.lastAutoMoveTick)
-        if dur == 0:
-            return
+    def Move_Circle(self):
         self.movevector = (
-            self.pos.rotate(Vector2(0.5, 0.5), - dur * self.movefnargs["anglespeed"]
-                            ) - self.pos) / dur
+            self.pos.rotate(Vector2(0.5, 0.5), - self.difftick * self.movefnargs["anglespeed"]
+                            ) - self.pos) / self.difftick
 
-    def Move_Vector(self, args):
-        dur = (self.thistick - self.lastAutoMoveTick)
+    def Move_Vector(self):
         self.movevector += self.movefnargs["accelvector"]
 
-    def Move_SyncTarget(self, args):
+    def Move_SyncTarget(self):
         if self.movefnargs["targetobj"] is None:
             return
         self.enabled = self.movefnargs["targetobj"].enabled
         if not self.enabled:
-            return
-        dur = (self.thistick - self.lastAutoMoveTick)
-        if dur == 0:
             return
 
         self.movefnargs["diffvector"] = self.movefnargs["diffvector"].rotate(
-            Vector2(0, 0), self.movefnargs["anglespeed"] * dur)
+            Vector2(0, 0), self.movefnargs["anglespeed"] * self.difftick)
         self.movevector = (self.movefnargs[
-                           "targetobj"].pos - self.pos + self.movefnargs["diffvector"]) / dur
+                           "targetobj"].pos - self.pos + self.movefnargs["diffvector"]) / self.difftick
 
-    def Move_FollowTarget(self, args):
+    def Move_FollowTarget(self):
         if self.movefnargs["targetobj"] is None:
             return
         self.enabled = self.movefnargs["targetobj"].enabled
         if not self.enabled:
             return
-        dur = (self.thistick - self.lastAutoMoveTick)
-
         self.accelToPos(self.movefnargs["targetobj"].pos)
         mvlen = abs(self.movevector)
-        self.movevector += self.movefnargs["accelvector"] * dur
+        self.movevector += self.movefnargs["accelvector"] * self.difftick
         self.movevector = self.movevector.normalized() * mvlen
 
     def bounceToObj(self, target):
@@ -816,6 +828,18 @@ class SpriteObj(Storage):
             'movefn': Move_Vector,
             'wallactionfn': WallAction_Remove,
             'movefnargs': {"accelvector": Vector2(0, 0)},
+        },
+        "cloud": {
+            "objtype": 'cloud',
+            'movelimit': 0.2,
+            'secToLifeEnd': -1.0,
+            'collisionCricle': 0.05,
+            'collisionTarget': [],
+            'movevector': Vector2(0, 0),
+            'movefn': Move_Vector,
+            'wallactionfn': WallAction_Wrap_Inner,
+            'movefnargs': {"accelvector": Vector2(1, 0)},
+            'shapefnargs': {'animationfps': 0},
         },
         "background": {
             "objtype": 'background',
