@@ -694,9 +694,11 @@ class SpriteObj(Storage):
 
     def setAccelVector(self, vt):
         self.movefnargs["accelvector"] = vt
+        return self
 
     def clearAccelVector(self):
         self.movefnargs["accelvector"] = Vector2(0, 0)
+        return self
 
     def getAccelVector(self):
         return self.movefnargs["accelvector"]
@@ -1419,16 +1421,6 @@ class AI2(GameObjectGroup):
 
 class ShootingGameMixin(object):
 
-    def initGroups(self, groupclass, spriteClass):
-        self.dispgroup = {}
-        self.dispgroup['backgroup'] = groupclass().initialize(
-            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
-        self.dispgroup['effectObjs'] = groupclass().initialize(
-            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
-        self.dispgroup['frontgroup'] = groupclass().initialize(
-            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
-        self.dispgroup['objplayers'] = []
-
     def getTeamByID(self, ID):
         return self.getTeamByIDfromList(self.dispgroup['objplayers'], ID)
 
@@ -1619,6 +1611,16 @@ class AIClientMixin(ShootingGameMixin):
 
 class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
+    def initGroups(self, groupclass, spriteClass):
+        self.dispgroup = {}
+        self.dispgroup['backgroup'] = groupclass().initialize(
+            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
+        self.dispgroup['effectObjs'] = groupclass().initialize(
+            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
+        self.dispgroup['frontgroup'] = groupclass().initialize(
+            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
+        self.dispgroup['objplayers'] = []
+
     def __init__(self, *args, **kwds):
         def setAttr(name, defaultvalue):
             self.__dict__[name] = kwds.pop(name, defaultvalue)
@@ -1626,7 +1628,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
         self.clientCommDict = kwds.pop('clientCommDict')
         self.FPSTimerInit(getFrameTime, 60)
-        ShootingGameMixin.initGroups(self, GameObjectGroup, SpriteObj)
+        self.initGroups(GameObjectGroup, SpriteObj)
 
         for i in range(8):
             o = self.make1TeamCustom(

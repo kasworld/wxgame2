@@ -38,43 +38,62 @@ class GameResource(object):
     def getcwdfilepath(self, filename):
         return os.path.join(self.srcdir, self.resourcedir, filename)
 
-    def loadBitmap2MemoryDCArray(self, name, *args, **kwds):
+    def memorized(self, fn, name, *args, **kwds):
         key = (name, args, str(kwds))
-        if not self.rcsdict.get(key, None):
-            self.rcsdict[key] = GameResource._loadBitmap2MemoryDCArray(
-                self.getcwdfilepath(name), *args, **kwds)
+        if self.rcsdict.get(key) is None:
+            self.rcsdict[key] = fn(self.getcwdfilepath(name), *args, **kwds)
         return self.rcsdict[key]
 
-    def loadDirfiles2MemoryDCArray(self, name, *args, **kwds):
-        key = (name, args, str(kwds))
-        if not self.rcsdict.get(key, None):
-            self.rcsdict[key] = GameResource._loadDirfiles2MemoryDCArray(
-                self.getcwdfilepath(name), *args, **kwds)
-        return self.rcsdict[key]
+    def File2MDCList(self, name, *args, **kwds):
+        return self.memorized(GameResource._File2MDCList, name, *args, **kwds)
 
-    def loadBitmap2RotatedMemoryDCArray(self, name, *args, **kwds):
-        key = (name, args, str(kwds))
-        if not self.rcsdict.get(key, None):
-            self.rcsdict[key] = GameResource._loadBitmap2RotatedMemoryDCArray(
-                self.getcwdfilepath(name), *args, **kwds)
-        return self.rcsdict[key]
+    def Dir2MDCList(self, name, *args, **kwds):
+        return self.memorized(GameResource._Dir2MDCList, name, *args, **kwds)
 
-    def loadBitmap2ColorScaledMemoryDCArray(self, name, *args, **kwds):
-        key = (name, args, str(kwds))
-        if not self.rcsdict.get(key, None):
-            self.rcsdict[key] = GameResource._loadBitmap2ColorScaledMemoryDCArray(
-                self.getcwdfilepath(name), *args, **kwds)
-        return self.rcsdict[key]
-
-    def loadBitmap2RotatedColorScaledMemoryDCArray(self, name, *args, **kwds):
-        key = (name, args, str(kwds))
-        if not self.rcsdict.get(key, None):
-            self.rcsdict[key] = GameResource._loadBitmap2RotatedColorScaledMemoryDCArray(
-                self.getcwdfilepath(name), *args, **kwds)
-        return self.rcsdict[key]
+    def File2OPedMDCList(self, name, *args, **kwds):
+        return self.memorized(GameResource._File2OPedMDCList, name, *args, **kwds)
 
     @staticmethod
-    def _loadBitmap2MemoryDCArray(bitmapfilename, xslicenum=1, yslicenum=1, totalslice=10000, yfirst=True, reverse=False, addreverse=False):
+    def makeRotatedImage(image, angle):
+        rad = math.radians(-angle)
+        xlen, ylen = image.GetWidth(), image.GetHeight()
+        #offset = wx.Point()
+        # ,wx.Point(xlen,ylen) )
+        rimage = image.Rotate(rad, (xlen / 2, ylen / 2), True)
+        # rimage =  image.Rotate( rad, (0,0) ,True) #,wx.Point() )
+        xnlen, ynlen = rimage.GetWidth(), rimage.GetHeight()
+        rsimage = rimage.Size(
+            (xlen, ylen), (-(xnlen - xlen) / 2, -(ynlen - ylen) / 2))
+        # print angle, xlen , ylen , xnlen , ynlen , rsimage.GetWidth() ,
+        # rsimage.GetHeight()
+        return rsimage
+
+    @staticmethod
+    def _File2OPedMDCList(imagefilename, scalearg=None, adjcharg=None, rotarg=None, listop=()):
+        rtn = []
+        image = wx.Bitmap(imagefilename).ConvertToImage()
+        if scalearg is not None:
+            image = image.Scale(*scalearg)
+        if adjcharg is not None:
+            image = image.AdjustChannels(*adjcharg)
+
+        if rotarg is not None:
+            for a in range(*rotarg):
+                rtn.append(wx.MemoryDC(
+                    GameResource.makeRotatedImage(image, a).ConvertToBitmap()
+                ))
+            if 'reverse' in listop:
+                rtn.reverse()
+            if 'addreverse' in listop:
+                rrtn = rtn[:]
+                rrtn.reverse()
+                rtn += rrtn
+        else:
+            rtn = [wx.MemoryDC(image.ConvertToBitmap())]
+        return rtn
+
+    @staticmethod
+    def _File2MDCList(bitmapfilename, xslicenum=1, yslicenum=1, totalslice=10000, yfirst=True, reverse=False, addreverse=False):
         rtn = []
         fullbitmap = wx.Bitmap(bitmapfilename)
         dcsize = fullbitmap.GetSize()
@@ -100,76 +119,11 @@ class GameResource(object):
         return rtn
 
     @staticmethod
-    def _loadDirfiles2MemoryDCArray(dirname, reverse=False, addreverse=False):
+    def _Dir2MDCList(dirname, reverse=False, addreverse=False):
         rtn = []
         filenames = sorted(os.listdir(dirname), reverse=reverse)
         for a in filenames:
             rtn.append(wx.MemoryDC(wx.Bitmap(dirname + "/" + a)))
-        if addreverse:
-            rrtn = rtn[:]
-            rrtn.reverse()
-            rtn += rrtn
-        return rtn
-
-    @staticmethod
-    def makeRotatedImage(image, angle):
-        rad = math.radians(-angle)
-        xlen, ylen = image.GetWidth(), image.GetHeight()
-        #offset = wx.Point()
-        # ,wx.Point(xlen,ylen) )
-        rimage = image.Rotate(rad, (xlen / 2, ylen / 2), True)
-        # rimage =  image.Rotate( rad, (0,0) ,True) #,wx.Point() )
-        xnlen, ynlen = rimage.GetWidth(), rimage.GetHeight()
-        rsimage = rimage.Size(
-            (xlen, ylen), (-(xnlen - xlen) / 2, -(ynlen - ylen) / 2))
-        # print angle, xlen , ylen , xnlen , ynlen , rsimage.GetWidth() ,
-        # rsimage.GetHeight()
-        return rsimage
-
-    @staticmethod
-    def makeScaleImage(image, w, h):
-        return image.Scale(w, h)
-
-    @staticmethod
-    def makeAdjustChannelsImage(image, rf, gf, bf):
-        return image.AdjustChannels(rf, gf, bf)
-
-    @staticmethod
-    def _loadBitmap2ColorScaledMemoryDCArray(imagefilename, w, h, rf, gf, bf):
-        fullimage = wx.Bitmap(imagefilename).ConvertToImage()
-        scaled = GameResource.makeScaleImage(fullimage, w, h)
-        colored = GameResource.makeAdjustChannelsImage(scaled, rf, gf, bf)
-        return [wx.MemoryDC(colored.ConvertToBitmap())]
-
-    @staticmethod
-    def _loadBitmap2RotatedMemoryDCArray(imagefilename, rangearg=(0, 360, 10), reverse = False, addreverse = False):
-        rtn = []
-        fullimage = wx.Bitmap(imagefilename).ConvertToImage()
-        for a in range(*rangearg):
-            rtn.append(wx.MemoryDC(
-                GameResource.makeRotatedImage(fullimage, a).ConvertToBitmap()
-            ))
-        if reverse:
-            rtn.reverse()
-        if addreverse:
-            rrtn = rtn[:]
-            rrtn.reverse()
-            rtn += rrtn
-        return rtn
-
-    @staticmethod
-    def _loadBitmap2RotatedColorScaledMemoryDCArray(imagefilename, w, h, rf, gf, bf, rangearg=(0, 360, 10), reverse = False, addreverse = False):
-        rtn = []
-        oriimage = wx.Bitmap(imagefilename).ConvertToImage()
-        scaled = GameResource.makeScaleImage(oriimage, w, h)
-        colored = GameResource.makeAdjustChannelsImage(scaled, rf, gf, bf)
-
-        for a in range(*rangearg):
-            rtn.append(wx.MemoryDC(
-                GameResource.makeRotatedImage(colored, a).ConvertToBitmap()
-            ))
-        if reverse:
-            rtn.reverse()
         if addreverse:
             rrtn = rtn[:]
             rrtn.reverse()
@@ -196,7 +150,7 @@ g_rcs = GameResource('resource')
 g_frameinfo = {}
 
 
-class BackGroundSplite(SpriteObj):
+class BackGroundSprite(SpriteObj):
 
     """
     background scroll class
@@ -286,6 +240,90 @@ class BackGroundSplite(SpriteObj):
         self.drawfillfn(self, pdc, clientsize)
 
 
+class ForegroundSprite(SpriteObj):
+
+    """
+    display and shape
+    """
+
+    def initialize(self, args):
+        SpriteObj.initialize(self, args)
+        argsdict = {
+            "shapefn": ForegroundSprite.ShapeChange_None,
+            "shapefnargs": {
+                'radiusSpeed': 0,
+                "pen": None,
+                "brush": None,
+                "memorydcs": None,
+                "dcsize": None,
+                "startimagenumber": 0,
+                "animationfps": 10,
+            },
+            "afterremovefn": None,
+            "afterremovefnarg": (),
+        }
+        updateDict(self, argsdict)
+        updateDict(self, args)
+
+        self.baseCollisionCricle = self.collisionCricle
+        self.registerAutoMoveFn(self.shapefn, [])
+        self.registerAutoMoveFn(ForegroundSprite.changeImage, [])
+        self.loadResource(self.shapefnargs.get('memorydcs'))
+        return self
+
+    def loadResource(self, rcs):
+        if rcs is None:
+            self.shapefnargs['brush'] = wx.Brush(
+                self.group.teamcolor, wx.SOLID)
+            self.shapefnargs['pen'] = wx.Pen(self.group.teamcolor)
+        else:
+            self.shapefnargs['memorydcs'] = rcs
+            self.shapefnargs['dcsize'] = self.shapefnargs[
+                'memorydcs'][0].GetSizeTuple()
+            self.currentimagenumber = self.shapefnargs['startimagenumber']
+            self.shapefnargs['animationfps'] = self.shapefnargs[
+                'animationfps']
+
+        return self
+
+    def ShapeChange_None(self):
+        pass
+
+    def changeImage(self):
+        if self.shapefnargs['memorydcs']:
+            self.currentimagenumber = int(self.shapefnargs['startimagenumber'] + self.getAge(
+                self.thistick) * self.shapefnargs['animationfps']) % len(self.shapefnargs['memorydcs'])
+
+    def Draw_Shape(self, pdc, clientsize, sizehint):
+        pdc.SetPen(self.shapefnargs['pen'])
+        pdc.SetBrush(self.shapefnargs['brush'])
+        pdc.DrawCircle(
+            clientsize.x * self.pos.x,
+            clientsize.y * self.pos.y,
+            max(sizehint * self.collisionCricle, 1)
+        )
+
+    def Draw_MDC(self, pdc, clientsize, sizehint):
+        pdc.Blit(
+            clientsize.x * self.pos.x - self.shapefnargs['dcsize'][0] / 2,
+            clientsize.y * self.pos.y - self.shapefnargs['dcsize'][1] / 2,
+            self.shapefnargs['dcsize'][0],
+            self.shapefnargs['dcsize'][1],
+            self.shapefnargs['memorydcs'][self.currentimagenumber],
+            0, 0,
+            wx.COPY,
+            True
+        )
+
+    def DrawToWxDC(self, pdc, clientsize, sizehint):
+        if not self.enabled or not self.visible:
+            return
+        if self.shapefnargs['memorydcs']:
+            self.Draw_MDC(pdc, clientsize, sizehint)
+        else:
+            self.Draw_Shape(pdc, clientsize, sizehint)
+
+
 class ShootingGameObject(SpriteObj):
 
     """
@@ -336,9 +374,11 @@ class ShootingGameObject(SpriteObj):
         pass
 
     def changeImage(self):
-        if self.shapefnargs['memorydcs']:
-            self.currentimagenumber = int(self.shapefnargs['startimagenumber'] + self.getAge(
-                self.thistick) * self.shapefnargs['animationfps']) % len(self.shapefnargs['memorydcs'])
+        # if self.shapefnargs['memorydcs']:
+        #     self.currentimagenumber = int(self.shapefnargs['startimagenumber'] + self.getAge(
+        # self.thistick) * self.shapefnargs['animationfps']) %
+        # len(self.shapefnargs['memorydcs'])
+        pass
 
     def Draw_Shape(self, pdc, clientsize, sizehint):
         pdc.SetPen(self.shapefnargs['pen'])
@@ -350,8 +390,6 @@ class ShootingGameObject(SpriteObj):
         )
 
     def Draw_MDC(self, pdc, clientsize, sizehint):
-        # self.currentimagenumber = g_frameinfo[
-        #     'stat'].datadict['count'] % len(self.shapefnargs['memorydcs'])
         pdc.Blit(
             clientsize.x * self.pos.x - self.shapefnargs['dcsize'][0] / 2,
             clientsize.y * self.pos.y - self.shapefnargs['dcsize'][1] / 2,
@@ -364,6 +402,8 @@ class ShootingGameObject(SpriteObj):
         )
 
     def DrawToWxDC(self, pdc, clientsize, sizehint):
+        self.currentimagenumber = g_frameinfo[
+            'stat'].datadict['count'] % len(self.shapefnargs['memorydcs'])
         if not self.enabled or not self.visible:
             return
         if self.shapefnargs['memorydcs']:
@@ -374,41 +414,46 @@ class ShootingGameObject(SpriteObj):
 
 class GameObjectDisplayGroup(GameObjectGroup):
 
-    def makeResourceArgs(self, objtype):
+    def type2RcsArgs2(self, objtype):
         collisionCricle = self.spriteClass.typeDefaultDict[
             objtype]['collisionCricle']
         sizehint = 1000 * 2
         r, g, b = self.teamcolor
 
-        return collisionCricle * sizehint, collisionCricle * sizehint, r / 128.0, g / 128.0, b / 128.0
+        return {
+            'scalearg': (collisionCricle * sizehint, collisionCricle * sizehint),
+            'adjcharg': (r / 128.0, g / 128.0, b / 128.0, 1.0)
+        }
 
     def loadResource(self):
         if self.resoueceReady is True:
             return
 
         self.rcsdict = {
-            # 'bounceball': None,
-            'bounceball': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-            "grayball.png", *self.makeResourceArgs('bounceball')),
-            'bullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                "grayball.png", *self.makeResourceArgs('bullet')),
-            'hommingbullet': g_rcs.loadBitmap2RotatedColorScaledMemoryDCArray(
-                "spiral.png", *self.makeResourceArgs('hommingbullet')),
-            'superbullet': g_rcs.loadBitmap2RotatedColorScaledMemoryDCArray(
-                "spiral.png", *self.makeResourceArgs('superbullet')),
-            'circularbullet': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                "grayball.png", *self.makeResourceArgs('circularbullet')),
-            'shield': g_rcs.loadBitmap2ColorScaledMemoryDCArray(
-                "grayball.png", *self.makeResourceArgs('shield')),
-            'supershield': g_rcs.loadBitmap2RotatedColorScaledMemoryDCArray(
-                "spiral.png", *self.makeResourceArgs('supershield')),
-            'spriteexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
+            'spriteexplosioneffect': g_rcs.File2MDCList(
                 "EvilTrace.png", 1, 8),
-            'ballexplosioneffect': g_rcs.loadBitmap2MemoryDCArray(
+            'ballexplosioneffect': g_rcs.File2MDCList(
                 "explo1e.png", 8, 1),
-            'spawneffect': g_rcs.loadBitmap2MemoryDCArray(
+            'spawneffect': g_rcs.File2MDCList(
                 "spawn.png", 1, 6, reverse=True),
         }
+
+        loadlist = [
+            ('bounceball', "grayball.png", None),
+            ('bullet', "grayball.png", None),
+            ('hommingbullet', "spiral.png", (0, 360, 10)),
+            ('superbullet', "spiral.png", (0, 360, 10)),
+            ('circularbullet', "grayball.png", None),
+            ('shield', "grayball.png", None),
+            ('supershield', "spiral.png", (0, 360, 10))
+        ]
+        for ot, img, rotarg in loadlist:
+            argdict = self.type2RcsArgs2(ot)
+            argdict.update({'rotarg': rotarg})
+
+            self.rcsdict[ot] = g_rcs.File2OPedMDCList(
+                img, **argdict)
+
         self.resoueceReady = True
 
     def initialize(self, *args, **kwds):
@@ -427,6 +472,16 @@ class GameObjectDisplayGroup(GameObjectGroup):
 
 class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
 
+    def initGroups(self, groupclass, spriteClass):
+        self.dispgroup = {}
+        self.dispgroup['backgroup'] = groupclass().initialize(
+            gameObj=self, spriteClass=BackGroundSprite, teamcolor=(0x7f, 0x7f, 0x7f))
+        self.dispgroup['effectObjs'] = groupclass().initialize(
+            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
+        self.dispgroup['frontgroup'] = groupclass().initialize(
+            gameObj=self, spriteClass=ForegroundSprite, teamcolor=(0x7f, 0x7f, 0x7f))
+        self.dispgroup['objplayers'] = []
+
     def __init__(self, *args, **kwds):
         AIClientMixin.__init__(self, *args, **kwds)
         del kwds['conn']
@@ -443,7 +498,7 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
         self.dispgroup['backgroup'].append(
             self.makeBkObj()
         )
-        for i in range(10):
+        for i in range(4):
             self.dispgroup['frontgroup'].append(self.makeFrontObj())
 
         self.registerRepeatFn(self.prfps, 1)
@@ -454,10 +509,11 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
             print self.conn.protocol.getStatInfo()
 
     def makeFrontObj(self):
-        o = ShootingGameObject().initialize(dict(
+        o = ForegroundSprite().initialize(dict(
             objtype="cloud",
             pos=Vector2(random.random(), random.random()),
-            movevector=Vector2.rect(0.1, random2pi()),
+            movevector=Vector2.rect(0.01, math.pi),
+            movelimit=0.1,
             group=self.dispgroup['frontgroup'],
             movefnargs={"accelvector": Vector2(1, 0)},
             shapefnargs={
@@ -465,16 +521,17 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
             }
         ))
         o.loadResource(
-            [random.choice(g_rcs.loadBitmap2MemoryDCArray("Clouds.png", 1, 4))]
+            [random.choice(g_rcs.File2MDCList("Clouds.png", 1, 4))]
         )
+        print o
         return o
 
     def makeBkObj(self):
-        return BackGroundSplite().initialize(dict(
+        return BackGroundSprite().initialize(dict(
             objtype="background",
-            movevector=Vector2.rect(100.0, random2pi()),
-            memorydc=g_rcs.loadBitmap2MemoryDCArray("background.gif")[0],
-            drawfillfn=BackGroundSplite.DrawFill_Both,
+            movevector=Vector2.rect(100.0, -math.pi),
+            memorydc=g_rcs.File2MDCList("background.gif")[0],
+            drawfillfn=BackGroundSprite.DrawFill_Both,
         ))
 
     def OnKeyDown(self, evt):
@@ -549,18 +606,21 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
         for gog in self.dispgroup['objplayers']:
             gog.AutoMoveByTime(self.thistick)
 
+        angle = random2pi() / 10
+        bgmoved = False
         self.dispgroup['backgroup'].AutoMoveByTime(self.thistick)
         for o in self.dispgroup['backgroup']:
-            if random.random() < 0.001:
-                o.setAccelVector(o.getAccelVector().addAngle(random2pi()))
+            if random.random() < 0.1:
+                o.setAccelVector(o.getAccelVector().addAngle(angle))
+                bgmoved = True
 
         self.dispgroup['effectObjs'].AutoMoveByTime(
             self.thistick).RemoveDisabled()
 
         self.dispgroup['frontgroup'].AutoMoveByTime(self.thistick)
         for o in self.dispgroup['frontgroup']:
-            if random.random() < 0.01:
-                o.setAccelVector(o.getAccelVector().addAngle(random2pi()))
+            if bgmoved and random.random() < 0.9:
+                o.setAccelVector(o.getAccelVector().addAngle(-angle))
             # print o #, o.movefnargs
 
         self.Refresh(False)
