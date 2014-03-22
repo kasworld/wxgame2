@@ -53,3 +53,5 @@ nosetests.xml
 
 # uwsgi tmp file
 uwsgi_spoolfile_on*
+
+profile.txt

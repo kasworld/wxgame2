@@ -33,16 +33,16 @@ class GameResource(object):
         wx.InitAllImageHandlers()
         self.srcdir = os.path.dirname(os.path.abspath(sys.argv[0]))
         self.resourcedir = dirname
-        self.rcsdict = {}
+        self.rcsCache = {}
 
     def getcwdfilepath(self, filename):
         return os.path.join(self.srcdir, self.resourcedir, filename)
 
     def memorized(self, fn, name, *args, **kwds):
         key = (name, args, str(kwds))
-        if self.rcsdict.get(key) is None:
-            self.rcsdict[key] = fn(self.getcwdfilepath(name), *args, **kwds)
-        return self.rcsdict[key]
+        if self.rcsCache.get(key) is None:
+            self.rcsCache[key] = fn(self.getcwdfilepath(name), *args, **kwds)
+        return self.rcsCache[key]
 
     def Dir2MDCList(self, name, *args, **kwds):
         return self.memorized(GameResource._Dir2MDCList, name, *args, **kwds)
@@ -261,7 +261,6 @@ class ForegroundSprite(SpriteObj):
     """
 
     def initialize(self, args):
-        SpriteObj.initialize(self, args)
         argsdict = {
             "shapefn": ForegroundSprite.ShapeChange_None,
             "shapefnargs": {
@@ -271,21 +270,21 @@ class ForegroundSprite(SpriteObj):
                 "memorydcs": None,
                 "dcsize": None,
                 "startimagenumber": 0,
-                "animationfps": 10,
+                "animationfps": 0,
             },
             "afterremovefn": None,
             "afterremovefnarg": (),
         }
-        updateDict(self, argsdict)
-        updateDict(self, args)
+        updateDict(argsdict, args)
+        SpriteObj.initialize(self, argsdict)
 
         self.baseCollisionCricle = self.collisionCricle
         self.registerAutoMoveFn(self.shapefn, [])
         self.registerAutoMoveFn(ForegroundSprite.changeImage, [])
-        self.loadResource(self.shapefnargs.get('memorydcs'))
+        self.initResource(self.shapefnargs.get('memorydcs'))
         return self
 
-    def loadResource(self, rcs):
+    def initResource(self, rcs):
         if rcs is None:
             self.shapefnargs['brush'] = wx.Brush(
                 self.group.teamcolor, wx.SOLID)
@@ -295,8 +294,6 @@ class ForegroundSprite(SpriteObj):
             self.shapefnargs['dcsize'] = self.shapefnargs[
                 'memorydcs'][0].GetSizeTuple()
             self.currentimagenumber = self.shapefnargs['startimagenumber']
-            self.shapefnargs['animationfps'] = self.shapefnargs[
-                'animationfps']
 
         return self
 
@@ -345,7 +342,6 @@ class ShootingGameObject(SpriteObj):
     """
 
     def initialize(self, args):
-        SpriteObj.initialize(self, args)
         argsdict = {
             "shapefn": ShootingGameObject.ShapeChange_None,
             "shapefnargs": {
@@ -360,16 +356,16 @@ class ShootingGameObject(SpriteObj):
             "afterremovefn": None,
             "afterremovefnarg": (),
         }
-        updateDict(self, argsdict)
-        updateDict(self, args)
+        updateDict(argsdict, args)
+        SpriteObj.initialize(self, argsdict)
 
         self.baseCollisionCricle = self.collisionCricle
         self.registerAutoMoveFn(self.shapefn, [])
         self.registerAutoMoveFn(ShootingGameObject.changeImage, [])
-        self.loadResource(self.shapefnargs.get('memorydcs'))
+        self.initResource(self.shapefnargs.get('memorydcs'))
         return self
 
-    def loadResource(self, rcs):
+    def initResource(self, rcs):
         if rcs is None:
             self.shapefnargs['brush'] = wx.Brush(
                 self.group.teamcolor, wx.SOLID)
@@ -379,8 +375,6 @@ class ShootingGameObject(SpriteObj):
             self.shapefnargs['dcsize'] = self.shapefnargs[
                 'memorydcs'][0].GetSizeTuple()
             self.currentimagenumber = self.shapefnargs['startimagenumber']
-            self.shapefnargs['animationfps'] = self.shapefnargs[
-                'animationfps']
 
         return self
 
@@ -439,9 +433,6 @@ class GameObjectDisplayGroup(GameObjectGroup):
         }
 
     def loadResource(self):
-        if self.resoueceReady is True:
-            return
-
         self.rcsdict = {
             'spriteexplosioneffect': g_rcs.File2OPedMDCList(
                 "EvilTrace.png", slicearg=(1, 8, None, True)),
@@ -467,11 +458,8 @@ class GameObjectDisplayGroup(GameObjectGroup):
             self.rcsdict[ot] = g_rcs.File2OPedMDCList(
                 img, **argdict)
 
-        self.resoueceReady = True
-
     def initialize(self, *args, **kwds):
         GameObjectGroup.initialize(self, *args, **kwds)
-        self.resoueceReady = False
         self.loadResource()
         return self
 
@@ -533,7 +521,7 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
                 "animationfps": 0,
             }
         ))
-        o.loadResource(
+        o.initResource(
             [random.choice(g_rcs.File2OPedMDCList(
                 "Clouds.png",
                 slicearg=(1, 4, None, True),
@@ -587,7 +575,7 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
             )
             for o in gog:
                 rcs = gog.rcsdict[o.objtype]
-                o.loadResource(rcs)
+                o.initResource(rcs)
             return gog
 
         self.frameinfo.update(loadlist['frameinfo'])
@@ -720,49 +708,5 @@ def runClient():
     sigstophandler(0, 0)
 
 
-def runResoourceTest():
-    def sigstophandler(signum, frame):
-        print 'User Termination'
-        sys.exit(0)
-    signal.signal(signal.SIGINT, sigstophandler)
-
-    app = wx.App()
-    frame_1 = MyFrame(
-        None, -1, "", size=(1000, 1000),
-        conn= None)
-    app.SetTopWindow(frame_1)
-    frame_1.Show()
-
-    # test code here
-    gobj = frame_1.gamePannel
-    gog = GameObjectDisplayGroup().initialize(
-        teamcolor=(
-            random.randint(0, 255),
-            random.randint(0, 255),
-            random.randint(0, 255)),
-        teamname = 'team1',
-        servermove = False,
-        aiclass = GameObjectDisplayGroup,
-        gameObj=gobj,
-        spriteClass=ShootingGameObject,
-    )
-    gobj.dispgroup['objplayers'].append(gog)
-
-    o = gog.spriteClass().initialize(dict(
-        objtype='bounceball',
-        group=gog,
-        shapefn=ShootingGameObject.ShapeChange_None,
-    ))
-    rcs = gog.rcsdict['bounceball']
-    rcs = random.choice(rcs)
-    o.loadResource(rcs)
-
-    gog.insert(0, o)
-
-    app.MainLoop()
-    print 'end client'
-    sigstophandler(0, 0)
-
 if __name__ == "__main__":
     runClient()
-    # runResoourceTest()

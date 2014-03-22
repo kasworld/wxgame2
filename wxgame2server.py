@@ -57,6 +57,11 @@ server send to server
     cmd: del
 }
 
+profile
+python -m cProfile -o profile.txt  wxgame2client.py -t teama
+view profile
+import pstats
+pstats.Stats('profile.txt').strip_dirs().sort_stats('tottime').print_stats(40)
 """
 Version = '2.2.0'
 import time
@@ -415,6 +420,8 @@ def updateDict(dest, src):
             updateDict(dest[k], v)
         elif isinstance(v, Vector2):
             dest[k] = v.copy()
+        elif isinstance(v, list) and not isinstance(v, GameObjectGroup):
+            dest[k] = v[:]
         else:
             dest[k] = v
 
@@ -463,27 +470,20 @@ class SpriteObj(Storage):
         Storage.__init__(self)
 
         # initailize default field, value
-        self.update(copy.deepcopy(self.validFields))
+        #self.update(copy.deepcopy(self.validFields))
+        updateDict(self, self.validFields)
         self.ID = getSerial()
         self.createdTime = getFrameTime()
         self.lastAutoMoveTick = self.createdTime
 
-    def loadDefaultByType(self, objtype):
-        """ load default by type
-        """
-        updateDict(
-            self,
-            SpriteObj.typeDefaultDict.get(objtype, {})
-        )
-        return self
-
     def __str__(self):
-        return '[{}:{}:{}: pos:{} mv:{}]'.format(
+        return '[{}:{}:{}: pos:{} mv:{}|{}]'.format(
             self.__class__.__name__,
             self.objtype,
             self.ID,
             self.pos,
-            self.movevector
+            self.movevector,
+            self.group
         )
 
     def __hash__(self):
@@ -500,7 +500,11 @@ class SpriteObj(Storage):
     """
 
     def initialize(self, params={}):
-        self.loadDefaultByType(params.get('objtype'))
+        updateDict(
+            self,
+            self.typeDefaultDict.get(params.get('objtype'), {})
+        )
+
         updateDict(self, params)
 
         # self.autoMoveFns = []
@@ -508,7 +512,7 @@ class SpriteObj(Storage):
         self.registerAutoMoveFn(SpriteObj.Move_byMoveVector, [])
         self.registerAutoMoveFn(self.wallactionfn, [])
 
-        # pprint.pprint(self)
+        #print 'init obj', self
         return self
 
     def registerAutoMoveFn(self, fn, args=[]):
@@ -1130,6 +1134,7 @@ class GameObjectGroup(list):
         rmlist = [a for a in self if not a.enabled]
         for a in rmlist:
             self.remove(a)
+            #print 'remove obj', a
             if a.afterremovefn:
                 a.afterremovefn(*a.afterremovefnarg)
         return self
@@ -1711,6 +1716,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                 self.dispgroup['effectObjs'].addSpriteExplosionEffect(src)
             else:
                 # 충돌한 것이 bounceball 이면
+                #print 'bounceball killed', src
                 src.group.addBallExplosionEffect(
                     self.dispgroup['effectObjs'], src.group, src)
                 srcLostScore = src.getDelScore(math.sqrt(src.level))
