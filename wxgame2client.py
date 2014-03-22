@@ -44,9 +44,6 @@ class GameResource(object):
             self.rcsdict[key] = fn(self.getcwdfilepath(name), *args, **kwds)
         return self.rcsdict[key]
 
-    def File2MDCList(self, name, *args, **kwds):
-        return self.memorized(GameResource._File2MDCList, name, *args, **kwds)
-
     def Dir2MDCList(self, name, *args, **kwds):
         return self.memorized(GameResource._Dir2MDCList, name, *args, **kwds)
 
@@ -69,8 +66,32 @@ class GameResource(object):
         return rsimage
 
     @staticmethod
-    def _File2OPedMDCList(imagefilename, scalearg=None, adjcharg=None, rotarg=None, listop=()):
+    def listOp(imglist, listop):
+        if 'reverse' in listop:
+            imglist.reverse()
+        if 'addreverse' in listop:
+            rrtn = imglist[:]
+            rrtn.reverse()
+            imglist += rrtn
+
+    @staticmethod
+    def rotateOp(image, *rotarg):
         rtn = []
+        for a in range(*rotarg):
+            rtn.append(wx.MemoryDC(
+                GameResource.makeRotatedImage(image, a).ConvertToBitmap()
+            ))
+        return rtn
+
+    @staticmethod
+    def _File2OPedMDCList(imagefilename, scalearg=None, adjcharg=None, rotarg=None, slicearg=None, listop=()):
+        """
+        scalearg : tuple (width,height) : pixel
+        adjcharg : tuple ( t, g, b, alpha) : float
+        rotarg : tuple for range arg (start, end, step) : int
+        slicearg : tuple (xslicenum,yslicenum,totalslice,yfirst) : int int int bool
+        listop : tuple ('reverse' ,'addreverse' )
+        """
         image = wx.Bitmap(imagefilename).ConvertToImage()
         if scalearg is not None:
             image = image.Scale(*scalearg)
@@ -78,44 +99,37 @@ class GameResource(object):
             image = image.AdjustChannels(*adjcharg)
 
         if rotarg is not None:
-            for a in range(*rotarg):
-                rtn.append(wx.MemoryDC(
-                    GameResource.makeRotatedImage(image, a).ConvertToBitmap()
-                ))
-            if 'reverse' in listop:
-                rtn.reverse()
-            if 'addreverse' in listop:
-                rrtn = rtn[:]
-                rrtn.reverse()
-                rtn += rrtn
+            rtn = GameResource.rotateOp(image, *rotarg)
+            GameResource.listOp(rtn, listop)
+        elif slicearg is not None:
+            rtn = GameResource.sliceOp(image, *slicearg)
+            GameResource.listOp(rtn, listop)
         else:
             rtn = [wx.MemoryDC(image.ConvertToBitmap())]
         return rtn
 
     @staticmethod
-    def _File2MDCList(bitmapfilename, xslicenum=1, yslicenum=1, totalslice=10000, yfirst=True, reverse=False, addreverse=False):
+    def sliceOp(image, *slicearg):
         rtn = []
-        fullbitmap = wx.Bitmap(bitmapfilename)
-        dcsize = fullbitmap.GetSize()
+        xslicenum, yslicenum, totalslice, yfirst = slicearg
+        dcsize = image.GetSize()
         w, h = dcsize[0] / xslicenum, dcsize[1] / yslicenum
         if yfirst:
             for x in range(xslicenum):
                 for y in range(yslicenum):
                     rtn.append(wx.MemoryDC(
-                        fullbitmap.GetSubBitmap(wx.Rect(x * w, y * h, w, h))))
+                        image.GetSubImage(
+                            wx.Rect(x * w, y * h, w, h)).ConvertToBitmap()
+                    ))
         else:
             for y in range(yslicenum):
                 for x in range(xslicenum):
                     rtn.append(wx.MemoryDC(
-                        fullbitmap.GetSubBitmap(wx.Rect(x * w, y * h, w, h))))
-        totalslice = min(xslicenum * yslicenum, totalslice)
-        rtn = rtn[:totalslice]
-        if reverse:
-            rtn.reverse()
-        if addreverse:
-            rrtn = rtn[:]
-            rrtn.reverse()
-            rtn += rrtn
+                        image.GetSubImage(
+                            wx.Rect(x * w, y * h, w, h)).ConvertToBitmap()
+                    ))
+        if totalslice is not None:
+            rtn = rtn[:totalslice]
         return rtn
 
     @staticmethod
@@ -378,7 +392,8 @@ class ShootingGameObject(SpriteObj):
         #     self.currentimagenumber = int(self.shapefnargs['startimagenumber'] + self.getAge(
         # self.thistick) * self.shapefnargs['animationfps']) %
         # len(self.shapefnargs['memorydcs'])
-        pass
+        self.currentimagenumber = g_frameinfo[
+            'stat'].datadict['count'] % len(self.shapefnargs['memorydcs'])
 
     def Draw_Shape(self, pdc, clientsize, sizehint):
         pdc.SetPen(self.shapefnargs['pen'])
@@ -402,8 +417,6 @@ class ShootingGameObject(SpriteObj):
         )
 
     def DrawToWxDC(self, pdc, clientsize, sizehint):
-        self.currentimagenumber = g_frameinfo[
-            'stat'].datadict['count'] % len(self.shapefnargs['memorydcs'])
         if not self.enabled or not self.visible:
             return
         if self.shapefnargs['memorydcs']:
@@ -430,12 +443,12 @@ class GameObjectDisplayGroup(GameObjectGroup):
             return
 
         self.rcsdict = {
-            'spriteexplosioneffect': g_rcs.File2MDCList(
-                "EvilTrace.png", 1, 8),
-            'ballexplosioneffect': g_rcs.File2MDCList(
-                "explo1e.png", 8, 1),
-            'spawneffect': g_rcs.File2MDCList(
-                "spawn.png", 1, 6, reverse=True),
+            'spriteexplosioneffect': g_rcs.File2OPedMDCList(
+                "EvilTrace.png", slicearg=(1, 8, None, True)),
+            'ballexplosioneffect': g_rcs.File2OPedMDCList(
+                "explo1e.png", slicearg=(8, 1, None, True)),
+            'spawneffect': g_rcs.File2OPedMDCList(
+                "spawn.png", slicearg=(1, 6, None, True), listop=['reverse']),
         }
 
         loadlist = [
@@ -521,17 +534,19 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
             }
         ))
         o.loadResource(
-            [random.choice(g_rcs.File2MDCList("Clouds.png", 1, 4))]
+            [random.choice(g_rcs.File2OPedMDCList(
+                "Clouds.png",
+                slicearg=(1, 4, None, True),
+            ))]
         )
-        print o
         return o
 
     def makeBkObj(self):
         return BackGroundSprite().initialize(dict(
             objtype="background",
             movevector=Vector2.rect(100.0, -math.pi),
-            memorydc=g_rcs.File2MDCList("background.gif")[0],
             drawfillfn=BackGroundSprite.DrawFill_Both,
+            memorydc=g_rcs.File2OPedMDCList("background.gif", )[0]
         ))
 
     def OnKeyDown(self, evt):
