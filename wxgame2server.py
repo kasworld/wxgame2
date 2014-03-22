@@ -906,19 +906,6 @@ class GameObjectGroup(list):
         self.ID = jsondict['ID']
         for o in jsondict['objs']:
             objid, objtype, objpos, objmovevector = o[:4]
-            # if objtype in ['shield', 'supershield'] and self.hasBounceBall():
-            #     argsdict = dict(
-            #         objtype=objtype,
-            #         pos=Vector2(*objpos),
-            #         movevector=Vector2(*objmovevector),
-            #         movefnargs={
-            #             "targetobj": self[0],
-            #             "anglespeed": o[4],
-            #             'diffvector': self[0].pos - Vector2(*objpos),
-            #         },
-            #         group=self
-            #     )
-            # else:
             argsdict = dict(
                 objtype=objtype,
                 pos=Vector2(*objpos),
