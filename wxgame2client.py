@@ -562,21 +562,32 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
         self.dispgroup['frontgroup'].DrawToWxDC(pdc)
 
     def applyState(self, loadlist):
+        def addNewObj2Team(team, objdef):
+            objid, objtype, objpos, objmovevector = objdef[:4]
+
+            argsdict = dict(
+                objtype=objtype,
+                pos=Vector2(*objpos),
+                movevector=Vector2(*objmovevector),
+                group=team
+            )
+            newobj = team.spriteClass().initialize(argsdict)
+            newobj.ID = objid
+            newobj.initResource(team.rcsdict[newobj.objtype])
+            team.append(newobj)
+
         def makeNewTeam(groupdict):
-            gog = GameObjectDisplayGroup(
+            newteam = GameObjectDisplayGroup(
             ).initialize(
                 teamcolor=groupdict['teamcolor'],
                 teamname=groupdict['teamname'],
                 gameObj=self,
                 spriteClass=ShootingGameObject,
-            ).deserialize(
-                groupdict,
-                {}
             )
-            for o in gog:
-                rcs = gog.rcsdict[o.objtype]
-                o.initResource(rcs)
-            return gog
+            newteam.ID = groupdict['ID']
+            for objdef in groupdict['objs']:
+                addNewObj2Team(newteam, objdef)
+            return newteam
 
         def findObjByID(objs, id):
             for i in objs:
@@ -584,9 +595,22 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
                     return i
             return None
 
+        def migrateExistTeamObj(aliveteam, groupdict):
+            oldobjs = aliveteam[:]
+            aliveteam[:] = []
+            for objdef in groupdict['objs']:
+                objid, objtype, objpos, objmovevector = objdef[:4]
+                aliveobj = findObjByID(oldobjs, objid)
+                if aliveobj is not None:  # obj alive
+                    aliveteam.append(aliveobj)
+                    aliveobj.pos = Vector2(*objpos)
+                    aliveobj.movevector = Vector2(*objmovevector)
+                else:  # new obj
+                    addNewObj2Team(aliveteam, objdef)
+
         self.frameinfo.update(loadlist['frameinfo'])
-        self.dispgroup['effectObjs'] = makeNewTeam(
-            loadlist['effectObjs'])
+        migrateExistTeamObj(
+            self.dispgroup['effectObjs'], loadlist['effectObjs'])
 
         oldgog = self.dispgroup['objplayers']
         self.dispgroup['objplayers'] = []
@@ -595,26 +619,7 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
             if aliveteam is not None:  # copy oldteam to new team
                 self.dispgroup['objplayers'].append(aliveteam)
                 # now copy members
-                oldobjs = aliveteam[:]
-                aliveteam[:] = []
-                for objdef in groupdict['objs']:
-                    objid, objtype, objpos, objmovevector = objdef[:4]
-                    aliveobj = findObjByID(oldobjs, objid)
-                    if aliveobj is not None:  # obj alive
-                        aliveteam.append(aliveobj)
-                        aliveobj.pos = Vector2(*objpos)
-                        aliveobj.movevector = Vector2(*objmovevector)
-                    else:  # new obj
-                        argsdict = dict(
-                            objtype=objtype,
-                            pos=Vector2(*objpos),
-                            movevector=Vector2(*objmovevector),
-                            group=aliveteam
-                        )
-                        newobj = aliveteam.spriteClass().initialize(argsdict)
-                        newobj.initResource(aliveteam.rcsdict[newobj.objtype])
-                        aliveteam.append(newobj)
-
+                migrateExistTeamObj(aliveteam, groupdict)
             else:  # make new team
                 self.dispgroup['objplayers'].append(
                     makeNewTeam(groupdict)

@@ -890,31 +890,11 @@ class GameObjectGroup(list):
             'objs': []
         }
         for o in self:
-            # if o.objtype in ['shield', 'supershield']:
-            #     rtn['objs'].append(
-            #         (o.ID, o.objtype, (o.pos.x, o.pos.y),
-            #          (o.movevector.x, o.movevector.y), o.movefnargs['anglespeed'])
-            #     )
-            # else:
-                rtn['objs'].append(
-                    (o.ID, o.objtype, (o.pos.x, o.pos.y),
-                     (o.movevector.x, o.movevector.y))
-                )
-        return rtn
-
-    def deserialize(self, jsondict, classargsdict):
-        self.ID = jsondict['ID']
-        for o in jsondict['objs']:
-            objid, objtype, objpos, objmovevector = o[:4]
-            argsdict = dict(
-                objtype=objtype,
-                pos=Vector2(*objpos),
-                movevector=Vector2(*objmovevector),
-                group=self
+            rtn['objs'].append(
+                (o.ID, o.objtype, (o.pos.x, o.pos.y),
+                 (o.movevector.x, o.movevector.y))
             )
-            argsdict.update(classargsdict)
-            self.append(self.spriteClass().initialize(argsdict))
-        return self
+        return rtn
 
     def setAttrs(self, defaultdict, kwds):
         for k, v in defaultdict.iteritems():
@@ -1654,15 +1634,16 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         return o
 
     def prfps(self, repeatinfo):
-        print 'objs:', self.statObjN
-        print 'cmps:', self.statCmpN
-        print 'packetlen:', self.statPacketL
-        print 'fps:', self.frameinfo['stat']
         self.diaplayScore()
         for conn in self.clientCommDict['clients']:
             if conn is not None:
                 print conn.teamname
                 print conn.protocol.getStatInfo()
+        print 'objs:', self.statObjN
+        print 'cmps:', self.statCmpN
+        print 'packetlen:', self.statPacketL
+        print 'fps:', self.frameinfo['stat']
+        print
 
     def diaplayScore(self):
         teamscore = {}
@@ -1680,14 +1661,14 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                     objcount=len(j)
                 )
 
-        print "{:8} {:15} {:>16} {:>8} {:>8} {:8}".format(
+        print "{:12} {:15} {:>16} {:>8} {:>8} {:8}".format(
             'teamname', 'color', 'AI type', 'member', 'score', 'objcount'
         )
         sortedinfo = sorted(
             teamscore.keys(), key=lambda x: -teamscore[x]['teamscore'])
 
         for j in sortedinfo:
-            print "{:8} {:15} {:>16} {:8} {:8.4f} {:8}".format(
+            print "{:12} {:15} {:>16} {:8} {:8.4f} {:8}".format(
                 j,
                 teamscore[j]['color'],
                 teamscore[j]['ai'],
