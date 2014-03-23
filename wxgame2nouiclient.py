@@ -10,6 +10,7 @@ import sys
 import signal
 import time
 import argparse
+from euclid import Vector2
 from wxgame2server import SpriteObj, FPSlogicBase, AIClientMixin
 from wxgame2server import getFrameTime, putParams2Queue, TCPGameClient
 from wxgame2server import AI2 as GameObjectGroup
@@ -21,45 +22,40 @@ class AIGameClient(AIClientMixin, FPSlogicBase):
         AIClientMixin.__init__(self, *args, **kwds)
 
         self.FPSTimerInit(getFrameTime, 60)
-        AIClientMixin.initGroups(self, GameObjectGroup, SpriteObj)
+        self.initGroups(GameObjectGroup, SpriteObj)
         self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
         print 'fps:', self.statFPS
         print self.conn.protocol.getStatInfo()
 
-    def applyState(self, loadlist):
-        def makeGameObjectDisplayGroup(groupdict):
-            gog = GameObjectGroup(
-            ).initialize(
-                teamcolor=groupdict['teamcolor'],
-                teamname=groupdict['teamname'],
-                gameObj=self,
-                spriteClass=SpriteObj
-            ).deserialize(
-                groupdict,
-                {}
-            )
-            return gog
+    def initGroups(self, groupclass, spriteClass):
+        self.dispgroup = {}
+        self.dispgroup['backgroup'] = groupclass().initialize(
+            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
+        self.dispgroup['effectObjs'] = groupclass().initialize(
+            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
+        self.dispgroup['frontgroup'] = groupclass().initialize(
+            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
+        self.dispgroup['objplayers'] = []
 
+    def applyState(self, loadlist):
         self.frameinfo.update(loadlist['frameinfo'])
+        self.migrateExistTeamObj(
+            self.dispgroup['effectObjs'], loadlist['effectObjs'])
 
         oldgog = self.dispgroup['objplayers']
         self.dispgroup['objplayers'] = []
-        for og in loadlist['objplayers']:
-            gog = makeGameObjectDisplayGroup(og)
-
-            oldteam = self.getTeamByIDfromList(oldgog, gog.ID)
-            if oldteam is not None:
-                gog.statistic = oldteam.statistic
-                if oldteam.hasBounceBall() and gog.hasBounceBall():
-                    gog[0].fireTimeDict = oldteam[0].fireTimeDict
-                    gog[0].createdTime = oldteam[0].createdTime
-                    gog[0].lastAutoMoveTick = oldteam[0].lastAutoMoveTick
-                    gog[0].ID = oldteam[0].ID
-
-            self.dispgroup['objplayers'].append(gog)
-        return
+        for groupdict in loadlist['objplayers']:
+            aliveteam = self.getTeamByIDfromList(oldgog, groupdict['ID'])
+            if aliveteam is not None:  # copy oldteam to new team
+                self.dispgroup['objplayers'].append(aliveteam)
+                # now copy members
+                self.migrateExistTeamObj(aliveteam, groupdict)
+            else:  # make new team
+                self.dispgroup['objplayers'].append(
+                    self.makeNewTeam(GameObjectGroup, SpriteObj, groupdict)
+                )
 
     def doFPSlogic(self):
         self.thistick = self.frameinfo['thistime']

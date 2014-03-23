@@ -1501,6 +1501,52 @@ class ShootingGameMixin(object):
         targetlen = target.lento(src) if target else 1.5
         return target, targetlen
 
+    # deserialize functions
+    def findObjByID(self, objlist, id):
+        for o in objlist:
+            if o.ID == id:
+                return o
+        return None
+
+    def addNewObj2Team(self, team, objdef):
+        objid, objtype, objpos, objmovevector = objdef[:4]
+
+        argsdict = dict(
+            objtype=objtype,
+            pos=Vector2(*objpos),
+            movevector=Vector2(*objmovevector),
+            group=team
+        )
+        newobj = team.spriteClass().initialize(argsdict)
+        newobj.ID = objid
+        team.append(newobj)
+
+    def makeNewTeam(self, groupClass, spriteClass, groupdict):
+        newteam = groupClass(
+        ).initialize(
+            teamcolor=groupdict['teamcolor'],
+            teamname=groupdict['teamname'],
+            gameObj=self,
+            spriteClass=spriteClass,
+        )
+        newteam.ID = groupdict['ID']
+        for objdef in groupdict['objs']:
+            self.addNewObj2Team(newteam, objdef)
+        return newteam
+
+    def migrateExistTeamObj(self, aliveteam, groupdict):
+        oldobjs = aliveteam[:]
+        aliveteam[:] = []
+        for objdef in groupdict['objs']:
+            objid, objtype, objpos, objmovevector = objdef[:4]
+            aliveobj = self.findObjByID(oldobjs, objid)
+            if aliveobj is not None:  # obj alive
+                aliveteam.append(aliveobj)
+                aliveobj.pos = Vector2(*objpos)
+                aliveobj.movevector = Vector2(*objmovevector)
+            else:  # new obj
+                self.addNewObj2Team(aliveteam, objdef)
+
 
 class AIClientMixin(ShootingGameMixin):
 
