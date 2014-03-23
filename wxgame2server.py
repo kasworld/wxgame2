@@ -82,11 +82,16 @@ import SocketServer
 import Queue
 import select
 import socket
+import errno
 import traceback
 import struct
 
 from euclid import Vector2
 # ======== game lib ============
+
+if sys.version_info < (2, 7, 0):
+    print 'Warnning python version 2.7.x or more need'
+
 getSerial = itertools.count().next
 
 
@@ -1691,7 +1696,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.statObjN = Statistics()
         self.statCmpN = Statistics()
         self.statPacketL = Statistics()
-        print 'end init'
+        print 'ShootingGameServer inited'
         self.registerRepeatFn(self.prfps, 1)
 
     def make1TeamCustom(self, teamname, aiclass, spriteClass, teamcolor, servermove):
@@ -1707,10 +1712,10 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         return o
 
     def prfps(self, repeatinfo):
-        self.diaplayScore()
-        for conn in self.clientCommDict['clients']:
-            if conn is not None:
-                print conn.teamname, conn.protocol.getStatInfo()
+        # self.diaplayScore()
+        # for conn in self.clientCommDict['clients']:
+        #     if conn is not None:
+        #         print conn.teamname, conn.protocol.getStatInfo()
         print 'objs:', self.statObjN
         print 'cmps:', self.statCmpN
         print 'packetlen:', self.statPacketL
@@ -1807,6 +1812,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         return len(savelist)
 
     def processClientCmd(self):
+        dellist = []
         for conn in self.clientCommDict['clients']:
             if conn is None:
                 continue
@@ -1822,7 +1828,13 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                 if cmdDict is None:
                     break
                 cmdDict = fromGzJson(cmdDict)
-                self.do1ClientCmd(conn, cmdDict)
+                if self.do1ClientCmd(conn, cmdDict) is not None:
+                    dellist.append(conn)
+        for conn in dellist:
+            try:
+                self.clientCommDict['clients'].remove(conn)
+            except ValueError:
+                print 'not in clientCommDict', conn
 
     def do1ClientCmd(self, conn, cmdDict):
         cmd = cmdDict.get('cmd')
@@ -1849,7 +1861,8 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         elif cmd == 'del':
             print 'del team', conn.teamid
             self.delTeamByID(conn.teamid)
-            self.clientCommDict['clients'].remove(conn)
+            # self.clientCommDict['clients'].remove(conn)
+            return conn
 
         elif cmd == 'reqState':
             conn.sendQueue.put(self.clientCommDict['gameState'])
@@ -1934,22 +1947,43 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         while not self.clientCommDict['quit']:
             self.FPSTimer(0)
             time.sleep(self.newdur / 1000.)
+        print 'end doGame'
 
 # ================ tcp server ========
 
 
-class ClientConnectedThread(SocketServer.BaseRequestHandler):
+class TCPGameServer(threading.Thread):
 
-    def __str__(self):
-        return 'team:{}:{}\n{}'.format(
-            self.conn.teamname, self.client_address,
-            self.conn.protocol.getStatInfo(),
-        )
+    def __init__(self, clientCommDict):
+        self.clientCommDict = clientCommDict
+        print 'tcp starting server'
+        # create an INET, STREAMing socket
+        self.serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # reuse address
+        self.serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.serversocket.setsockopt(
+            socket.IPPROTO_TCP, socket.TCP_NODELAY, True)
 
-    def setup(self):
-        print 'client connected', self.client_address
-        protocol = I32sendrecv(self.request)
-        self.conn = Storage({
+        # bind the socket to a public host,
+        # and a well-known port
+        #self.serversocket.bind((socket.gethostname(), 22517))
+        self.serversocket.bind(('0.0.0.0', 22517))
+        # become a server socket
+        self.serversocket.listen(5)
+        self.quit = False
+        self.recvlist = [self.serversocket]
+        self.sendlist = []
+        print 'tcp start server'
+
+    def runService(self):
+        tcp_thread = threading.Thread(target=self.serverLoop)
+        tcp_thread.start()
+        return self, tcp_thread
+
+    def addNewClient(self, client, address):
+        print 'client connected ', client, address
+        protocol = I32sendrecv(client)
+        conn = Storage({
             'protocol': protocol,
             'recvQueue': protocol.recvQueue,
             'sendQueue': protocol.sendQueue,
@@ -1957,34 +1991,69 @@ class ClientConnectedThread(SocketServer.BaseRequestHandler):
             'teamname': None,
             'teamid': None
         })
-        self.server.clientCommDict['clients'].append(self.conn)
+        self.clientCommDict['clients'].append(conn)
+        self.recvlist.append(protocol)
 
-    def handle(self):
+    def closeClient(self, p):
+        print 'client disconnected', p
         try:
-            while self.conn.quit is not True:
-                self.conn.protocol.sendrecv()
-        except RuntimeError as e:
-            if e.args[0] != "socket connection broken":
-                raise RuntimeError(e)
-
-    def finish(self):
-        self.conn.quit = True
-        self.request.close()
-
-        print 'client disconnected'
-        print self
+            self.recvlist.remove(p)
+        except ValueError:
+            pass
+        try:
+            self.sendlist.remove(p)
+        except ValueError:
+            pass
 
         putParams2Queue(
-            self.conn.recvQueue,
+            p.recvQueue,
             cmd='del'
         )
+        p.sock.close()
+
+    def serverLoop(self):
+        print 'start serverLoop'
+
+        while not self.quit:
+            self.sendlist = [
+                s for s in self.recvlist if s != self.serversocket and s.canSend()]
+            inputready, outputready, exceptready = select.select(
+                self.recvlist, self.sendlist, [], 1.0 / 120)
+            for i in inputready:
+                if i == self.serversocket:
+                    # handle the server socket
+                    client, address = self.serversocket.accept()
+                    self.addNewClient(client, address)
+                else:
+                    try:
+                        if i.recv() == 'complete':
+                            i.recvstat.updateFPS()
+                    except RuntimeError as e:
+                        if e.args[0] != "socket connection broken":
+                            raise
+                        self.closeClient(i)
+                    except socket.error as e:
+                        # print traceback.format_exc()
+                        self.closeClient(i)
+
+            for o in outputready:
+                try:
+                    if o.send() == 'complete':
+                        o.sendstat.updateFPS()
+                except socket.error as e:
+                    # print traceback.format_exc()
+                    self.closeClient(i)
+
+        print 'closing serversocket'
+        self.serversocket.close()
+        print 'end serverLoop'
+
+    def shutdown(self):
+        print 'ending tcp server'
+        self.quit = True
 
 
-class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
-    allow_reuse_address = True
-
-
-def runService(listenFrom):
+def runService():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-a', '--aicount',
@@ -1998,16 +2067,12 @@ def runService(listenFrom):
 
     clientCommDict = {
         'gameState': '',
-        #'FreeTeamList': Queue.Queue(),
         'clients': [],
         'quit': False
     }
-    print 'Server start, ', listenFrom
+    print 'game Server start'
 
-    server = ThreadedTCPServer(listenFrom, ClientConnectedThread)
-    server.clientCommDict = clientCommDict
-    server_thread = threading.Thread(target=server.serve_forever)
-    server_thread.start()
+    server, server_thread = TCPGameServer(clientCommDict).runService()
 
     def sigstophandler(signum, frame):
         print 'User Termination'
@@ -2025,4 +2090,4 @@ def runService(listenFrom):
 
 
 if __name__ == "__main__":
-    runService(("0.0.0.0", 22517))
+    runService()
