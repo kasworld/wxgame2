@@ -631,7 +631,6 @@ def runClient():
         '-t', '--teamname'
     )
     args = parser.parse_args()
-    #runtest(args.server, args.teamname)
     destip, teamname = args.server, args.teamname
     if destip is None:
         destip = 'localhost'

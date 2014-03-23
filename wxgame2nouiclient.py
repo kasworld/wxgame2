@@ -6,28 +6,25 @@
     Copyright 2011,2013,1014 kasw <kasworld@gmail.com>
 """
 import random
+import argparse
 import sys
 import signal
 import time
-import argparse
-from euclid import Vector2
 from wxgame2server import SpriteObj, FPSlogicBase, AIClientMixin
 from wxgame2server import getFrameTime, putParams2Queue, TCPGameClient
 from wxgame2server import AI2 as GameObjectGroup
 
 
-class AIGameClient(AIClientMixin, FPSlogicBase):
+class AIGameClient(AIClientMixin, FPSlogicBase, TCPGameClient):
 
     def __init__(self, *args, **kwds):
-        AIClientMixin.__init__(self, *args, **kwds)
-
         self.FPSTimerInit(getFrameTime, 60)
         self.initGroups(GameObjectGroup, SpriteObj)
-        self.registerRepeatFn(self.prfps, 1)
+
+        self.connInit(kwds.pop('connectTo'))
 
     def prfps(self, repeatinfo):
         print 'fps:', self.statFPS
-        print self.conn.protocol.getStatInfo()
 
     def initGroups(self, groupclass, spriteClass):
         self.dispgroup = {}
@@ -43,10 +40,35 @@ class AIGameClient(AIClientMixin, FPSlogicBase):
         self.thistick = self.frameinfo['thistime']
         self.processCmd()
 
-    def doGame(self):
-        while not self.conn.quit:
+    def clientLoop(self):
+        while self.conn.quit is not True:
+            try:
+                self.conn.protocol.sendrecv()
+            except RuntimeError as e:
+                if e.args[0] != "socket connection broken":
+                    raise RuntimeError(e)
+                self.conn.quit = True
+                break
+
             self.FPSTimer(0)
-            time.sleep(self.newdur / 1000.)
+            #time.sleep(self.newdur / 1000.)
+
+    def connInit(self, connectTo):
+        if connectTo[0] is None:
+            connectTo = ('localhost', connectTo[1])
+        TCPGameClient.__init__(self, connectTo)
+
+        self.myteam = None
+        teamname = 'AI_%08X' % random.getrandbits(32)
+        teamcolor = (random.randint(0, 255),
+                     random.randint(0, 255), random.randint(0, 255))
+        print 'makeTeam', teamname, teamcolor
+        putParams2Queue(
+            self.conn.sendQueue,
+            cmd='makeTeam',
+            teamname=teamname,
+            teamcolor=teamcolor
+        )
 
 
 def runClient():
@@ -55,47 +77,29 @@ def runClient():
         '-s', '--server'
     )
     parser.add_argument(
-        '-t', '--teamname'
+        '-n', '--aicount',
+        default=8, type=int
     )
     args = parser.parse_args()
-    destip, teamname = args.server, args.teamname
 
-    if destip is None:
-        destip = 'localhost'
-    connectTo = destip, 22517
-    print 'Client start, ', connectTo
-
-    client, client_thread = TCPGameClient(connectTo).runService()
-
-    if teamname:
-        teamcolor = (random.randint(0, 255),
-                     random.randint(0, 255), random.randint(0, 255))
-        print 'makeTeam', teamname, teamcolor
-        putParams2Queue(
-            client.conn.sendQueue,
-            cmd='makeTeam',
-            teamname=teamname,
-            teamcolor=teamcolor
-        )
-    else:  # observer mode
-        print 'observer mode'
-        putParams2Queue(
-            client.conn.sendQueue,
-            cmd='reqState',
-        )
+    # run main
+    clients = []
+    for i in range(args.aicount):
+        clients.append(AIGameClient(
+            connectTo=(args.server, 22517)
+        ).runService())
 
     def sigstophandler(signum, frame):
         print 'User Termination'
-        client.shutdown()
-        client_thread.join(1)
+        for cl, ct in clients:
+            cl.shutdown()
+        for cl, ct in clients:
+            ct.join(1)
         sys.exit(0)
     signal.signal(signal.SIGINT, sigstophandler)
 
-    # run main
-    AIGameClient(conn=client.conn).doGame()
-
-    print 'end client'
-    sigstophandler(0, 0)
+    while True:
+        time.sleep(1)
 
 if __name__ == "__main__":
     runClient()

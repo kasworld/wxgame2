@@ -75,6 +75,7 @@ try:
 except:
     import json
 import sys
+import argparse
 import signal
 import threading
 import SocketServer
@@ -290,7 +291,7 @@ class I32sendrecv(object):
         )
 
     def getStatInfo(self):
-        return 'send:{}:{}\nrecv:{}:{}'.format(
+        return 'send:{}:{} | recv:{}:{}'.format(
             self.sendQueue.qsize(), self.sendstat,
             self.recvQueue.qsize(), self.recvstat
         )
@@ -1670,10 +1671,11 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             return self.__dict__[name]
 
         self.clientCommDict = kwds.pop('clientCommDict')
+        self.aicount = kwds.pop('aicount')
         self.FPSTimerInit(getFrameTime, 60)
         self.initGroups(GameObjectGroup, SpriteObj)
 
-        for i in range(8):
+        for i in range(self.aicount):
             o = self.make1TeamCustom(
                 teamname='server%d' % i,
                 aiclass=AI2,
@@ -1708,8 +1710,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.diaplayScore()
         for conn in self.clientCommDict['clients']:
             if conn is not None:
-                print conn.teamname
-                print conn.protocol.getStatInfo()
+                print conn.teamname, conn.protocol.getStatInfo()
         print 'objs:', self.statObjN
         print 'cmps:', self.statCmpN
         print 'packetlen:', self.statPacketL
@@ -1984,6 +1985,17 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
 def runService(listenFrom):
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '-a', '--aicount',
+        type=int,
+        help='server ai count'
+    )
+    args = parser.parse_args()
+    aicount = args.aicount
+    if aicount is None:
+        aicount = 8
+
     clientCommDict = {
         'gameState': '',
         #'FreeTeamList': Queue.Queue(),
@@ -2007,7 +2019,7 @@ def runService(listenFrom):
 
     signal.signal(signal.SIGINT, sigstophandler)
 
-    ShootingGameServer(clientCommDict=clientCommDict).doGame()
+    ShootingGameServer(clientCommDict=clientCommDict, aicount=aicount).doGame()
 
 # ================ tcp server end =======
 
