@@ -31,31 +31,13 @@ class AIGameClient(AIClientMixin, FPSlogicBase):
 
     def initGroups(self, groupclass, spriteClass):
         self.dispgroup = {}
-        self.dispgroup['backgroup'] = groupclass().initialize(
-            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
         self.dispgroup['effectObjs'] = groupclass().initialize(
-            gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
-        self.dispgroup['frontgroup'] = groupclass().initialize(
             gameObj=self, spriteClass=spriteClass, teamcolor=(0x7f, 0x7f, 0x7f))
         self.dispgroup['objplayers'] = []
 
     def applyState(self, loadlist):
-        self.frameinfo.update(loadlist['frameinfo'])
-        self.migrateExistTeamObj(
-            self.dispgroup['effectObjs'], loadlist['effectObjs'])
-
-        oldgog = self.dispgroup['objplayers']
-        self.dispgroup['objplayers'] = []
-        for groupdict in loadlist['objplayers']:
-            aliveteam = self.getTeamByIDfromList(oldgog, groupdict['ID'])
-            if aliveteam is not None:  # copy oldteam to new team
-                self.dispgroup['objplayers'].append(aliveteam)
-                # now copy members
-                self.migrateExistTeamObj(aliveteam, groupdict)
-            else:  # make new team
-                self.dispgroup['objplayers'].append(
-                    self.makeNewTeam(GameObjectGroup, SpriteObj, groupdict)
-                )
+        AIClientMixin.applyState(self, GameObjectGroup, SpriteObj, loadlist)
+        return
 
     def doFPSlogic(self):
         self.thistick = self.frameinfo['thistime']
@@ -76,7 +58,6 @@ def runClient():
         '-t', '--teamname'
     )
     args = parser.parse_args()
-    #runtest(args.server, args.teamname)
     destip, teamname = args.server, args.teamname
 
     if destip is None:

@@ -470,7 +470,7 @@ class SpriteObj(Storage):
         Storage.__init__(self)
 
         # initailize default field, value
-        #self.update(copy.deepcopy(self.validFields))
+        # self.update(copy.deepcopy(self.validFields))
         updateDict(self, self.validFields)
         self.ID = getSerial()
         self.createdTime = getFrameTime()
@@ -512,7 +512,7 @@ class SpriteObj(Storage):
         self.registerAutoMoveFn(SpriteObj.Move_byMoveVector, [])
         self.registerAutoMoveFn(self.wallactionfn, [])
 
-        #print 'init obj', self
+        # print 'init obj', self
         return self
 
     def registerAutoMoveFn(self, fn, args=[]):
@@ -742,6 +742,7 @@ class SpriteObj(Storage):
             'movefnargs': {"accelvector": Vector2(0, 0)},
             'movefn': Move_Vector,
             'wallactionfn': WallAction_Remove,
+            'shapefnargs': {'animationfps': 30},
         },
         "superbullet": {
             "objtype": 'superbullet',
@@ -752,6 +753,7 @@ class SpriteObj(Storage):
             'movefnargs': {"accelvector": Vector2(0, 0)},
             'movefn': Move_Vector,
             'wallactionfn': WallAction_Remove,
+            'shapefnargs': {'animationfps': 30},
         },
         "hommingbullet": {
             "objtype": 'hommingbullet',
@@ -762,6 +764,7 @@ class SpriteObj(Storage):
             'movefn': Move_FollowTarget,
             'movefnargs': {"accelvector": Vector2(0.0, 0.0)},
             'wallactionfn': WallAction_None,
+            'shapefnargs': {'animationfps': 30},
         },
         "bullet": {
             "objtype": 'bullet',
@@ -772,6 +775,7 @@ class SpriteObj(Storage):
             'movefnargs': {"accelvector": Vector2(0, 0)},
             'movefn': Move_Vector,
             'wallactionfn': WallAction_Remove,
+            'shapefnargs': {'animationfps': 30},
         },
         "bounceball": {
             "objtype": 'bounceball',
@@ -815,6 +819,7 @@ class SpriteObj(Storage):
             'movefn': Move_Vector,
             'wallactionfn': WallAction_Remove,
             'movefnargs': {"accelvector": Vector2(0, 0)},
+            'shapefnargs': {'animationfps': 30},
         },
         "ballexplosioneffect": {
             "objtype": 'ballexplosioneffect',
@@ -824,6 +829,7 @@ class SpriteObj(Storage):
             'movefn': Move_Vector,
             'wallactionfn': WallAction_Remove,
             'movefnargs': {"accelvector": Vector2(0, 0)},
+            'shapefnargs': {'animationfps': 30},
         },
         "spawneffect": {
             "objtype": 'spawneffect',
@@ -834,6 +840,7 @@ class SpriteObj(Storage):
             'movefn': Move_Vector,
             'wallactionfn': WallAction_Remove,
             'movefnargs': {"accelvector": Vector2(0, 0)},
+            'shapefnargs': {'animationfps': 30},
         },
         "cloud": {
             "objtype": 'cloud',
@@ -1101,7 +1108,7 @@ class GameObjectGroup(list):
         rmlist = [a for a in self if not a.enabled]
         for a in rmlist:
             self.remove(a)
-            #print 'remove obj', a
+            # print 'remove obj', a
             if a.afterremovefn:
                 a.afterremovefn(*a.afterremovefnarg)
         return self
@@ -1547,6 +1554,24 @@ class ShootingGameMixin(object):
             else:  # new obj
                 self.addNewObj2Team(aliveteam, objdef)
 
+    def applyState(self, groupClass, spriteClass, loadlist):
+        self.frameinfo.update(loadlist['frameinfo'])
+        self.migrateExistTeamObj(
+            self.dispgroup['effectObjs'], loadlist['effectObjs'])
+
+        oldgog = self.dispgroup['objplayers']
+        self.dispgroup['objplayers'] = []
+        for groupdict in loadlist['objplayers']:
+            aliveteam = self.getTeamByIDfromList(oldgog, groupdict['ID'])
+            if aliveteam is not None:  # copy oldteam to new team
+                self.dispgroup['objplayers'].append(aliveteam)
+                # now copy members
+                self.migrateExistTeamObj(aliveteam, groupdict)
+            else:  # make new team
+                self.dispgroup['objplayers'].append(
+                    self.makeNewTeam(groupClass, spriteClass, groupdict)
+                )
+
 
 class AIClientMixin(ShootingGameMixin):
 
@@ -1730,7 +1755,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                 self.dispgroup['effectObjs'].addSpriteExplosionEffect(src)
             else:
                 # 충돌한 것이 bounceball 이면
-                #print 'bounceball killed', src
+                # print 'bounceball killed', src
                 src.group.addBallExplosionEffect(
                     self.dispgroup['effectObjs'], src.group, src)
                 srcLostScore = src.getDelScore(math.sqrt(src.level))

@@ -270,7 +270,6 @@ class ForegroundSprite(SpriteObj):
                 "memorydcs": None,
                 "dcsize": None,
                 "startimagenumber": 0,
-                "animationfps": 0,
             },
             "afterremovefn": None,
             "afterremovefnarg": (),
@@ -351,7 +350,6 @@ class ShootingGameObject(SpriteObj):
                 "memorydcs": None,
                 "dcsize": None,
                 "startimagenumber": 0,
-                "animationfps": 10,
             },
             "afterremovefn": None,
             "afterremovefnarg": (),
@@ -382,12 +380,13 @@ class ShootingGameObject(SpriteObj):
         pass
 
     def changeImage(self):
-        # if self.shapefnargs['memorydcs']:
-        #     self.currentimagenumber = int(self.shapefnargs['startimagenumber'] + self.getAge(
-        # self.thistick) * self.shapefnargs['animationfps']) %
-        # len(self.shapefnargs['memorydcs'])
-        self.currentimagenumber = g_frameinfo[
-            'stat'].datadict['count'] % len(self.shapefnargs['memorydcs'])
+        if self.shapefnargs['memorydcs']:
+            self.currentimagenumber = int(
+                self.shapefnargs['startimagenumber'] + self.getAge(
+                    self.thistick) * self.shapefnargs[
+                        'animationfps']) % len(self.shapefnargs['memorydcs'])
+        # self.currentimagenumber = g_frameinfo[
+        #     'stat'].datadict['count'] % len(self.shapefnargs['memorydcs'])
 
     def Draw_Shape(self, pdc, clientsize, sizehint):
         pdc.SetPen(self.shapefnargs['pen'])
@@ -517,9 +516,7 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
             movelimit=0.1,
             group=self.dispgroup['frontgroup'],
             movefnargs={"accelvector": Vector2(1, 0)},
-            shapefnargs={
-                "animationfps": 0,
-            }
+            shapefnargs={}
         ))
         o.initResource(
             [random.choice(g_rcs.File2OPedMDCList(
@@ -566,23 +563,8 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
         team[-1].initResource(team.rcsdict[team[-1].objtype])
 
     def applyState(self, loadlist):
-        self.frameinfo.update(loadlist['frameinfo'])
-        self.migrateExistTeamObj(
-            self.dispgroup['effectObjs'], loadlist['effectObjs'])
-
-        oldgog = self.dispgroup['objplayers']
-        self.dispgroup['objplayers'] = []
-        for groupdict in loadlist['objplayers']:
-            aliveteam = self.getTeamByIDfromList(oldgog, groupdict['ID'])
-            if aliveteam is not None:  # copy oldteam to new team
-                self.dispgroup['objplayers'].append(aliveteam)
-                # now copy members
-                self.migrateExistTeamObj(aliveteam, groupdict)
-            else:  # make new team
-                self.dispgroup['objplayers'].append(
-                    self.makeNewTeam(
-                        GameObjectDisplayGroup, ShootingGameObject, groupdict)
-                )
+        AIClientMixin.applyState(
+            self, GameObjectDisplayGroup, ShootingGameObject, loadlist)
 
     def doFPSlogic(self):
         g_frameinfo.update(self.frameinfo)
