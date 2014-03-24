@@ -9,6 +9,9 @@ import math
 import random
 import itertools
 import zlib
+import threading
+import socket
+import select
 try:
     import simplejson as json
 except:
@@ -20,13 +23,119 @@ import Queue
 import logging
 
 from euclid import Vector2
-from wxgame2lib import TCPGameServer, getFrameTime, getLogger, toGzJson, SpriteObj
+from wxgame2lib import getFrameTime, getLogger, toGzJson, SpriteObj, SendRecvStatMixin
 from wxgame2lib import putParams2Queue, fromGzJson, FPSlogicBase, Statistics, AI2
-from wxgame2lib import GameObjectGroup, ShootingGameMixin
+from wxgame2lib import GameObjectGroup, ShootingGameMixin, I32sendrecv, Storage
 
 Log = getLogger(level=logging.ERROR, appname='wxgame2server')
 Log.critical('current loglevel is %s',
              logging.getLevelName(Log.getEffectiveLevel()))
+
+
+class TCPGameServer(threading.Thread, SendRecvStatMixin):
+
+    def __init__(self, clientCommDict):
+        self.clientCommDict = clientCommDict
+        Log.info('tcp server starting')
+        # create an INET, STREAMing socket
+        self.serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # reuse address
+        self.serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.serversocket.setsockopt(
+            socket.IPPROTO_TCP, socket.TCP_NODELAY, True)
+
+        # bind the socket to a public host,
+        # and a well-known port
+        #self.serversocket.bind((socket.gethostname(), 22517))
+        self.serversocket.bind(('0.0.0.0', 22517))
+        # become a server socket
+        self.serversocket.listen(5)
+        self.quit = False
+        self.recvlist = [self.serversocket]
+        self.sendlist = []
+        SendRecvStatMixin.__init__(self)
+        Log.info('tcp server started')
+
+    def runService(self):
+        tcp_thread = threading.Thread(target=self.serverLoop)
+        tcp_thread.start()
+        return self, tcp_thread
+
+    def addNewClient(self, client, address):
+        Log.info('client connected %s %s', client, address)
+        protocol = I32sendrecv(client)
+        conn = Storage({
+            'protocol': protocol,
+            'recvQueue': protocol.recvQueue,
+            'sendQueue': protocol.sendQueue,
+            'quit': False,
+            'teamname': None,
+            'teamid': None
+        })
+        self.clientCommDict['clients'].append(conn)
+        self.recvlist.append(protocol)
+
+    def closeClient(self, p):
+        Log.info('client disconnected %s', p)
+        try:
+            self.recvlist.remove(p)
+        except ValueError:
+            pass
+        try:
+            self.sendlist.remove(p)
+        except ValueError:
+            pass
+
+        putParams2Queue(
+            p.recvQueue,
+            cmd='del'
+        )
+        p.sock.close()
+
+    def serverLoop(self):
+        Log.info('start serverLoop')
+
+        while not self.quit:
+            self.sendlist = [
+                s for s in self.recvlist[1:] if s.canSend()]
+            # self.sendlist = [
+            # s for s in self.recvlist if s != self.serversocket and
+            # s.canSend()]
+            inputready, outputready, exceptready = select.select(
+                self.recvlist, self.sendlist, [], 1.0 / 120)
+            for i in inputready:
+                if i == self.serversocket:
+                    # handle the server socket
+                    client, address = self.serversocket.accept()
+                    self.addNewClient(client, address)
+                else:
+                    try:
+                        if i.recv() == 'complete':
+                            self.updateRecvStat()
+                    except RuntimeError as e:
+                        if e.args[0] != "socket connection broken":
+                            raise
+                        self.closeClient(i)
+                    except socket.error as e:
+                        # print traceback.format_exc()
+                        self.closeClient(i)
+
+            for o in outputready:
+                try:
+                    if o.send() == 'complete':
+                        self.updateSendStat()
+                except socket.error as e:
+                    # print traceback.format_exc()
+                    self.closeClient(i)
+
+        Log.info('closing serversocket')
+        self.serversocket.close()
+        Log.info('end serverLoop')
+        Log.info('%s', self.getStatInfo())
+
+    def shutdown(self):
+        Log.info('tcp server ending')
+        self.quit = True
 
 
 class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
@@ -315,7 +424,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         Log.info('end doGame')
 
 
-def runService():
+def runServer():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-n', '--aicount',
@@ -351,4 +460,4 @@ def runService():
 
 
 if __name__ == "__main__":
-    runService()
+    runServer()

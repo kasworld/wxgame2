@@ -15,7 +15,9 @@ import signal
 import argparse
 import Queue
 import logging
-
+import threading
+import socket
+import select
 import wx
 import wx.grid
 import wx.lib.colourdb
@@ -23,8 +25,8 @@ import wx.lib.colourdb
 from euclid import Vector2
 
 from wxgame2lib import SpriteObj, random2pi, FPSlogicBase, updateDict, fromGzJson
-from wxgame2lib import getFrameTime, putParams2Queue, TCPGameClientMT, getLogger
-from wxgame2lib import ShootingGameMixin
+from wxgame2lib import getFrameTime, putParams2Queue, getLogger, I32sendrecv
+from wxgame2lib import ShootingGameMixin, Storage
 
 from wxgame2lib import AI2 as GameObjectGroup
 
@@ -701,6 +703,47 @@ class MyFrame(wx.Frame):
         sizer_1.Fit(self)
         self.Layout()
         self.gamePannel.SetFocus()
+
+
+class TCPGameClient(object):
+
+    def __str__(self):
+        return self.conn.protocol.getStatInfo()
+
+    def __init__(self, connectTo):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(connectTo)
+
+        protocol = I32sendrecv(sock)
+        self.conn = Storage({
+            'protocol': protocol,
+            'recvQueue': protocol.recvQueue,
+            'sendQueue': protocol.sendQueue,
+            'quit': False,
+        })
+        Log.info('%s', self)
+
+    def clientLoop(self):
+        try:
+            while self.conn.quit is not True:
+                self.conn.protocol.sendrecv()
+        except RuntimeError as e:
+            if e.args[0] != "socket connection broken":
+                raise RuntimeError(e)
+
+    def shutdown(self):
+        self.conn.quit = True
+        self.conn.protocol.sock.close()
+        Log.info('end connection')
+        Log.info('%s', self)
+
+
+class TCPGameClientMT(TCPGameClient, threading.Thread):
+
+    def runService(self):
+        client_thread = threading.Thread(target=self.clientLoop)
+        client_thread.start()
+        return self, client_thread
 
 
 def runClient():

@@ -216,7 +216,7 @@ class NPCServer(ShootingGameMixin, FPSlogicBase, SendRecvStatMixin):
             pass
 
 
-def runClient():
+def runNPC():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-s', '--server'
@@ -239,4 +239,4 @@ def runClient():
     npcs.clientLoop()
 
 if __name__ == "__main__":
-    runClient()
+    runNPC()
