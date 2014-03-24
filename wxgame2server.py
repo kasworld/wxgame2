@@ -78,7 +78,7 @@ import sys
 import argparse
 import signal
 import threading
-import SocketServer
+import multiprocessing
 import Queue
 import select
 import socket
@@ -107,12 +107,12 @@ def getLogger(level=logging.DEBUG, appname='noname'):
     logger.addHandler(ch)
     return logger
 
-Log = getLogger(appname='wxgame2')
+Log = getLogger(level=logging.ERROR, appname='wxgame2')
 Log.critical('current loglevel is %s',
              logging.getLevelName(Log.getEffectiveLevel()))
 
 if sys.version_info < (2, 7, 0):
-    Log.warn('python version 2.7.x or more need')
+    Log.critical('python version 2.7.x or more need')
 
 getSerial = itertools.count().next
 
@@ -417,7 +417,7 @@ class I32sendrecv(SendRecvStatMixin):
         return self.sock.fileno()
 
 
-class TCPGameClient(threading.Thread):
+class TCPGameClient(object):
 
     def __str__(self):
         return self.conn.protocol.getStatInfo()
@@ -435,11 +435,6 @@ class TCPGameClient(threading.Thread):
         })
         Log.info('%s', self)
 
-    def runService(self):
-        client_thread = threading.Thread(target=self.clientLoop)
-        client_thread.start()
-        return self, client_thread
-
     def clientLoop(self):
         try:
             while self.conn.quit is not True:
@@ -455,7 +450,25 @@ class TCPGameClient(threading.Thread):
         Log.info('%s', self)
 
 
+class TCPGameClientMT(TCPGameClient, threading.Thread):
+
+    def runService(self):
+        client_thread = threading.Thread(target=self.clientLoop)
+        client_thread.start()
+        return self, client_thread
+
+
+class TCPGameClientMP(TCPGameClient, multiprocessing.Process):
+
+    def runService(self):
+        client_process = multiprocessing.Process(target=self.clientLoop)
+        client_process.start()
+        return self, client_process
+
+
 # ======== game lib end ============
+
+
 def updateDict(dest, src):
     for k, v in src.iteritems():
         if isinstance(v, dict) and not isinstance(v, Storage):
@@ -1202,14 +1215,14 @@ class GameObjectGroup(list):
         if actions is None:
             return
         if not self.hasBounceBall():
-            Log.warn('No bounceBall')
+            Log.debug('No bounceBall')
             return
         src = self[0]
         for act, actargs in actions:
             if self.usableBulletCountDict.get(act, 0) > 0:
                 self.statistic['act'][act] += 1
                 if not actargs and act in ["superbullet", "hommingbullet", "bullet", "accel"]:
-                    Log.warn("no target %s %s %s", act, src, actargs)
+                    Log.debug("no target %s %s %s", act, src, actargs)
                     pass
                 elif act == "circularbullet":
                     self.AddCircularBullet2(src.pos)
@@ -1230,7 +1243,7 @@ class GameObjectGroup(list):
                 src.fireTimeDict[act] = self.thistick
             else:
                 if act != 'doNothing':
-                    Log.warn("%s action %s overuse fail", self.teamname, act)
+                    Log.debug("%s action %s overuse fail", self.teamname, act)
                     pass
 
     def AutoMoveByTime(self, thistick):
@@ -2114,7 +2127,3 @@ def runService():
 
 if __name__ == "__main__":
     runService()
-    # try:
-    #     raise RuntimeError(" error")
-    # except:
-    #     Log.exception('aa')

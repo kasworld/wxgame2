@@ -11,8 +11,9 @@ import sys
 import signal
 import time
 from wxgame2server import SpriteObj, FPSlogicBase, AIClientMixin
-from wxgame2server import getFrameTime, putParams2Queue, TCPGameClient
+from wxgame2server import getFrameTime, putParams2Queue
 from wxgame2server import AI2 as GameObjectGroup
+from wxgame2server import TCPGameClientMT as TCPGameClient
 
 
 class AIGameClient(AIClientMixin, FPSlogicBase, TCPGameClient):

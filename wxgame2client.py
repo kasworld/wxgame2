@@ -19,7 +19,7 @@ import wx.grid
 import wx.lib.colourdb
 from euclid import Vector2
 from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict, AIClientMixin
-from wxgame2server import getFrameTime, putParams2Queue, TCPGameClient
+from wxgame2server import getFrameTime, putParams2Queue, TCPGameClientMT
 from wxgame2server import AI2 as GameObjectGroup
 # ======== game lib ============
 
@@ -637,7 +637,7 @@ def runClient():
     connectTo = destip, 22517
     print 'Client start, ', connectTo
 
-    client, client_thread = TCPGameClient(connectTo).runService()
+    client, client_thread = TCPGameClientMT(connectTo).runService()
 
     if teamname:
         teamcolor = random.choice(wx.lib.colourdb.getColourInfoList())
