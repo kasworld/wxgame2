@@ -23,7 +23,7 @@ class AIGameClient(AIClientMixin, FPSlogicBase, TCPGameClient):
         self.initGroups(GameObjectGroup, SpriteObj)
 
         self.connInit(kwds.pop('connectTo'))
-        self.registerRepeatFn(self.prfps, 1)
+        #self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
         print 'packet', self.conn.protocol.getStatInfo()
