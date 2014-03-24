@@ -5,7 +5,7 @@
     wxGameFramework
     Copyright 2011,2013,1014 kasw <kasworld@gmail.com>
 """
-from wxgame2server import Version
+from wxgame2lib import Version
 import random
 import math
 import os
@@ -13,15 +13,24 @@ import os.path
 import sys
 import signal
 import argparse
-import traceback
+import Queue
+import logging
+
 import wx
 import wx.grid
 import wx.lib.colourdb
+
 from euclid import Vector2
-from wxgame2server import SpriteObj, random2pi, FPSlogicBase, updateDict, AIClientMixin
-from wxgame2server import getFrameTime, putParams2Queue, TCPGameClientMT
-from wxgame2server import AI2 as GameObjectGroup
-# ======== game lib ============
+
+from wxgame2lib import SpriteObj, random2pi, FPSlogicBase, updateDict, fromGzJson
+from wxgame2lib import getFrameTime, putParams2Queue, TCPGameClientMT, getLogger
+from wxgame2lib import ShootingGameMixin
+
+from wxgame2lib import AI2 as GameObjectGroup
+
+Log = getLogger(level=logging.ERROR, appname='wxgame2client')
+Log.critical('current loglevel is %s',
+             logging.getLevelName(Log.getEffectiveLevel()))
 
 
 class GameResource(object):
@@ -159,7 +168,7 @@ class FPSlogic(FPSlogicBase):
 
     def FPSTimerDel(self):
         self.timer.Stop()
-# ======== game lib end ============
+
 g_rcs = GameResource('resource')
 g_frameinfo = {}
 
@@ -468,6 +477,78 @@ class GameObjectDisplayGroup(GameObjectGroup):
         for a in self:
             a.DrawToWxDC(pdc, clientsize, sizehint)
         return self
+
+
+class AIClientMixin(ShootingGameMixin):
+
+    def __init__(self, *args, **kwds):
+        self.conn = kwds.pop('conn')
+        self.myteam = None
+
+    def makeClientAIAction(self):
+        # make AI action
+        if self.myteam is None:
+            return
+        aa = self.getTeamByID(self.myteam['teamid'])
+        if aa is None:
+            return
+        targets = [tt for tt in self.dispgroup[
+            'objplayers'] if tt.teamname != aa.teamname]
+        aa.prepareActions(
+            targets,
+            self.frameinfo['ThisFPS'],
+            self.thistick
+        )
+        actions = aa.SelectAction(targets, aa[0])
+        actionjson = self.serializeActions(actions)
+        putParams2Queue(
+            self.conn.sendQueue,
+            cmd='act',
+            team=self.myteam,
+            actions=actionjson,
+        )
+
+    def processCmd(self):
+
+        while not self.conn.recvQueue.empty():
+            try:
+                cmdDict = self.conn.recvQueue.get_nowait()
+                if cmdDict is None:
+                    break
+            except Queue.Empty:
+                break
+            cmdDict = fromGzJson(cmdDict)
+
+            cmd = cmdDict.get('cmd')
+
+            if cmd == 'gameState':
+                putParams2Queue(
+                    self.conn.sendQueue,
+                    cmd='reqState',
+                )
+                self.applyState(cmdDict)
+                if self.myteam is not None:
+                    self.makeClientAIAction()
+
+            elif cmd == 'actACK':
+                pass
+
+            elif cmd == 'teamInfo':
+                teamname = cmdDict.get('teamname')
+                teamid = cmdDict.get('teamid')
+                self.myteam = {
+                    'teamname': teamname,
+                    'teamid': teamid,
+                    'teamStartTime': self.thistick,
+                }
+                Log.info('joined %s %s', teamname, teamid)
+                Log.info('%s', self.myteam)
+                putParams2Queue(
+                    self.conn.sendQueue,
+                    cmd='reqState',
+                )
+            else:
+                Log.warn('unknown cmd %s', cmdDict)
 
 
 class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):

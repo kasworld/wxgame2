@@ -14,9 +14,9 @@ import Queue
 import time
 import logging
 import socket
-from wxgame2server import SpriteObj, FPSlogicBase, AIClientMixin, SendRecvStatMixin, fromGzJson
-from wxgame2server import getFrameTime, putParams2Queue, I32sendrecv, Storage, getLogger
-from wxgame2server import AI2 as GameObjectGroup
+from wxgame2lib import SpriteObj, FPSlogicBase, SendRecvStatMixin, fromGzJson, ShootingGameMixin
+from wxgame2lib import getFrameTime, putParams2Queue, I32sendrecv, getLogger
+from wxgame2lib import AI2 as GameObjectGroup
 
 Log = getLogger(level=logging.DEBUG, appname='wxgame2npc')
 Log.critical('current loglevel is %s',
@@ -74,7 +74,7 @@ class TCPGameClient(I32sendrecv):
         )
 
 
-class NPCServer(AIClientMixin, FPSlogicBase, SendRecvStatMixin):
+class NPCServer(ShootingGameMixin, FPSlogicBase, SendRecvStatMixin):
 
     def __init__(self, *args, **kwds):
         self.FPSTimerInit(getFrameTime, 60)
@@ -93,7 +93,7 @@ class NPCServer(AIClientMixin, FPSlogicBase, SendRecvStatMixin):
         print 'packet:', self.getStatInfo()
 
     def applyState(self, loadlist):
-        AIClientMixin.applyState(self, GameObjectGroup, SpriteObj, loadlist)
+        ShootingGameMixin.applyState(self, GameObjectGroup, SpriteObj, loadlist)
 
     def doFPSlogic(self):
         self.thistick = self.frameinfo['thistime']
@@ -148,7 +148,6 @@ class NPCServer(AIClientMixin, FPSlogicBase, SendRecvStatMixin):
                         allSent = False
                 if allSent:
                     self.allInited = True
-
 
         elif cmd == 'actACK':
             if client.teaminfo is not None:
@@ -229,8 +228,7 @@ def runClient():
     args = parser.parse_args()
 
     # run main
-    npcs = NPCServer(connectTo=(args.server, 22517),
-                     aicount=args.aicount).clientLoop()
+    npcs = NPCServer(connectTo=(args.server, 22517), aicount=args.aicount)
 
     def sigstophandler(signum, frame):
         print 'User Termination'
@@ -238,6 +236,7 @@ def runClient():
         # sys.exit(0)
     signal.signal(signal.SIGINT, sigstophandler)
 
+    npcs.clientLoop()
 
 if __name__ == "__main__":
     runClient()
