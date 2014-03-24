@@ -82,6 +82,7 @@ import SocketServer
 import Queue
 import select
 import socket
+import logging
 import errno
 import traceback
 import struct
@@ -89,8 +90,29 @@ import struct
 from euclid import Vector2
 # ======== game lib ============
 
+
+def getLogger(level=logging.DEBUG, appname='noname'):
+    # create logger
+    logger = logging.getLogger(appname)
+    logger.setLevel(level)
+    # create console handler and set level to debug
+    ch = logging.StreamHandler()
+    ch.setLevel(level)
+    # create formatter
+    #formatter = logging.Formatter("%(asctime)s:%(levelname)s: %(message)s")
+    formatter = logging.Formatter("%(levelname)s: %(message)s")
+    # add formatter to ch
+    ch.setFormatter(formatter)
+    # add ch to logger
+    logger.addHandler(ch)
+    return logger
+
+Log = getLogger(appname='wxgame2')
+Log.critical('current loglevel is %s',
+             logging.getLevelName(Log.getEffectiveLevel()))
+
 if sys.version_info < (2, 7, 0):
-    print 'Warnning python version 2.7.x or more need'
+    Log.warn('python version 2.7.x or more need')
 
 getSerial = itertools.count().next
 
@@ -187,7 +209,7 @@ class Statistics(object):
 
     def updateFPS(self):
         if not self.timeFn:
-            print 'ERROR - NOT FPS stat'
+            Log.error('NOT FPS stat')
             return
         thistime = self.timeFn()
         self.frames.append(thistime)
@@ -268,7 +290,25 @@ class FPSlogicBase(object):
         pass
 
 
-class I32sendrecv(object):
+class SendRecvStatMixin(object):
+
+    def __init__(self):
+        self.sendstat = Statistics(timeFn=getFrameTime)
+        self.recvstat = Statistics(timeFn=getFrameTime)
+
+    def getStatInfo(self):
+        return 'send:{} recv:{}'.format(
+            self.sendstat, self.recvstat
+        )
+
+    def updateSendStat(self):
+        self.sendstat.updateFPS()
+
+    def updateRecvStat(self):
+        self.recvstat.updateFPS()
+
+
+class I32sendrecv(SendRecvStatMixin):
 
     """
     recv 32bit len packet to recvQueue
@@ -283,9 +323,7 @@ class I32sendrecv(object):
         self.sock = sock
         self.readbuf = []  # memorybuf, toreadlen , buf state
         self.writebuf = []  # memorybuf, towritelen
-
-        self.sendstat = Statistics(timeFn=getFrameTime)
-        self.recvstat = Statistics(timeFn=getFrameTime)
+        SendRecvStatMixin.__init__(self)
 
     def __str__(self):
         return '[{}:{}:{}:{}]'.format(
@@ -334,7 +372,7 @@ class I32sendrecv(object):
                 self.readbuf = []
                 return 'complete'
             else:
-                print 'invalid recv state', self.readbuf[2]
+                Log.error('invalid recv state %s', self.readbuf[2])
                 return 'unknown'
         return 'cont'
 
@@ -395,7 +433,7 @@ class TCPGameClient(threading.Thread):
             'sendQueue': protocol.sendQueue,
             'quit': False,
         })
-        print self
+        Log.info('%s', self)
 
     def runService(self):
         client_thread = threading.Thread(target=self.clientLoop)
@@ -413,8 +451,8 @@ class TCPGameClient(threading.Thread):
     def shutdown(self):
         self.conn.quit = True
         self.conn.protocol.sock.close()
-        print 'end connection'
-        print self
+        Log.info('end connection')
+        Log.info('%s', self)
 
 
 # ======== game lib end ============
@@ -510,15 +548,10 @@ class SpriteObj(Storage):
             self,
             self.typeDefaultDict.get(params.get('objtype'), {})
         )
-
         updateDict(self, params)
-
-        # self.autoMoveFns = []
         self.registerAutoMoveFn(self.movefn, [])
         self.registerAutoMoveFn(SpriteObj.Move_byMoveVector, [])
         self.registerAutoMoveFn(self.wallactionfn, [])
-
-        # print 'init obj', self
         return self
 
     def registerAutoMoveFn(self, fn, args=[]):
@@ -955,9 +988,9 @@ class GameObjectGroup(list):
         self.setAttrs(defaultdict, kwds)
 
         if self.gameObj is None:
-            print 'Warnning gameObj:', self.gameObj
+            Log.warn('gameObj: %s', self.gameObj)
         if self.spriteClass is None:
-            print 'Warnning spriteClass:', self.spriteClass
+            Log.warn('spriteClass: %s', self.spriteClass)
 
         self.ID = getSerial()
         self.initStat()
@@ -1114,7 +1147,6 @@ class GameObjectGroup(list):
         rmlist = [a for a in self if not a.enabled]
         for a in rmlist:
             self.remove(a)
-            # print 'remove obj', a
             if a.afterremovefn:
                 a.afterremovefn(*a.afterremovefnarg)
         return self
@@ -1170,14 +1202,15 @@ class GameObjectGroup(list):
         if actions is None:
             return
         if not self.hasBounceBall():
-            # print 'No bounceBall'
+            Log.warn('No bounceBall')
             return
         src = self[0]
         for act, actargs in actions:
             if self.usableBulletCountDict.get(act, 0) > 0:
                 self.statistic['act'][act] += 1
                 if not actargs and act in ["superbullet", "hommingbullet", "bullet", "accel"]:
-                    print "Error %s %s %s" % (act, src, actargs)
+                    Log.warn("no target %s %s %s", act, src, actargs)
+                    pass
                 elif act == "circularbullet":
                     self.AddCircularBullet2(src.pos)
                 elif act == "superbullet":
@@ -1193,11 +1226,11 @@ class GameObjectGroup(list):
                 elif act == "accel":
                     src.setAccelVector(actargs)
                 else:
-                    print 'unknown act', act
+                    Log.warn('unknown act %s', act)
                 src.fireTimeDict[act] = self.thistick
             else:
                 if act != 'doNothing':
-                    # print "%s action %s overuse fail" % (self.teamname, act)
+                    Log.warn("%s action %s overuse fail", self.teamname, act)
                     pass
 
     def AutoMoveByTime(self, thistick):
@@ -1382,7 +1415,6 @@ class AI2(GameObjectGroup):
                 ((dangerrange, 0.0, acvt), (
                     2, 1.0, Vector2.rect(.2, random2pi())))
             )
-            # print dangertarget, accelvector
         else:
             accelvector = None
 
@@ -1444,8 +1476,7 @@ class ShootingGameMixin(object):
                     actionsjson.append((oname, args))
             return actionsjson
         except:
-            print traceback.format_exc()
-            print actionsjson, actions
+            Log.exception('%s %s', actionsjson, actions)
             return None
 
     def deserializeActions(self, actionjson):
@@ -1462,8 +1493,7 @@ class ShootingGameMixin(object):
                     actions.append((oname, args))
             return actions
         except:
-            print traceback.format_exc()
-            print actionjson, actions
+            Log.exception('%s %s', actionjson, actions)
             return None
 
     def makeCollisionDict(self):
@@ -1594,17 +1624,13 @@ class AIClientMixin(ShootingGameMixin):
             return
         targets = [tt for tt in self.dispgroup[
             'objplayers'] if tt.teamname != aa.teamname]
-
         aa.prepareActions(
             targets,
             self.frameinfo['ThisFPS'],
             self.thistick
         )
         actions = aa.SelectAction(targets, aa[0])
-
         actionjson = self.serializeActions(actions)
-        # print actions, actionjson
-
         putParams2Queue(
             self.conn.sendQueue,
             cmd='act',
@@ -1620,9 +1646,6 @@ class AIClientMixin(ShootingGameMixin):
                 if cmdDict is None:
                     break
             except Queue.Empty:
-                break
-            except:
-                print traceback.format_exc()
                 break
             cmdDict = fromGzJson(cmdDict)
 
@@ -1648,14 +1671,14 @@ class AIClientMixin(ShootingGameMixin):
                     'teamid': teamid,
                     'teamStartTime': self.thistick,
                 }
-                print 'joined', teamname, teamid
-                print self.myteam
+                Log.info('joined %s %s', teamname, teamid)
+                Log.info('%s', self.myteam)
                 putParams2Queue(
                     self.conn.sendQueue,
                     cmd='reqState',
                 )
             else:
-                print 'unknown cmd', cmdDict
+                Log.warn('unknown cmd %s', cmdDict)
 
 
 class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
@@ -1677,6 +1700,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
 
         self.clientCommDict = kwds.pop('clientCommDict')
         self.aicount = kwds.pop('aicount')
+        self.server = kwds.pop('server')
         self.FPSTimerInit(getFrameTime, 60)
         self.initGroups(GameObjectGroup, SpriteObj)
 
@@ -1696,7 +1720,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         self.statObjN = Statistics()
         self.statCmpN = Statistics()
         self.statPacketL = Statistics()
-        print 'ShootingGameServer inited'
+        Log.info('ShootingGameServer inited')
         self.registerRepeatFn(self.prfps, 1)
 
     def make1TeamCustom(self, teamname, aiclass, spriteClass, teamcolor, servermove):
@@ -1712,15 +1736,15 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         return o
 
     def prfps(self, repeatinfo):
-        # self.diaplayScore()
-        # for conn in self.clientCommDict['clients']:
-        #     if conn is not None:
-        #         print conn.teamname, conn.protocol.getStatInfo()
-        print 'objs:', self.statObjN
-        print 'cmps:', self.statCmpN
-        print 'packetlen:', self.statPacketL
-        print 'fps:', self.frameinfo['stat']
-        print
+        self.diaplayScore()
+        for conn in self.clientCommDict['clients']:
+            if conn is not None:
+                Log.info("%s %s", conn.teamname, conn.protocol.getStatInfo())
+        Log.critical('objs: %s', self.statObjN)
+        Log.critical('cmps: %s', self.statCmpN)
+        Log.critical('packetlen: %s', self.statPacketL)
+        Log.critical('fps: %s', self.frameinfo['stat'])
+        Log.critical('packets %s', self.server.getStatInfo())
 
     def diaplayScore(self):
         teamscore = {}
@@ -1738,21 +1762,21 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                     objcount=len(j)
                 )
 
-        print "{:12} {:15} {:>16} {:>8} {:>8} {:8}".format(
+        Log.info("{:12} {:15} {:>16} {:>8} {:>8} {:8}".format(
             'teamname', 'color', 'AI type', 'member', 'score', 'objcount'
-        )
+        ))
         sortedinfo = sorted(
             teamscore.keys(), key=lambda x: -teamscore[x]['teamscore'])
 
         for j in sortedinfo:
-            print "{:12} {:15} {:>16} {:8} {:8.4f} {:8}".format(
+            Log.info("{:12} {:15} {:>16} {:8} {:8.4f} {:8}".format(
                 j,
                 teamscore[j]['color'],
                 teamscore[j]['ai'],
                 teamscore[j]['member'],
                 teamscore[j]['teamscore'],
                 teamscore[j]['objcount']
-            )
+            ))
 
     def doScore(self, resultdict):
         for src, targets in resultdict.iteritems():
@@ -1761,7 +1785,6 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                 self.dispgroup['effectObjs'].addSpriteExplosionEffect(src)
             else:
                 # 충돌한 것이 bounceball 이면
-                # print 'bounceball killed', src
                 src.group.addBallExplosionEffect(
                     self.dispgroup['effectObjs'], src.group, src)
                 srcLostScore = src.getDelScore(math.sqrt(src.level))
@@ -1800,13 +1823,10 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             savelist = toGzJson(self.makeState())
             self.clientCommDict['gameState'] = savelist
         except zlib.error:
-            print 'zlib compress fail'
+            Log.exception('zlib compress fail')
             return 0
         except ValueError:
-            print 'encode fail'
-            return 0
-        except:
-            print traceback.format_exc()
+            Log.exception('encode fail')
             return 0
 
         return len(savelist)
@@ -1822,9 +1842,6 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
                     cmdDict = conn.recvQueue.get_nowait()
                 except Queue.Empty:
                     break
-                except:
-                    print traceback.format_exc()
-                    break
                 if cmdDict is None:
                     break
                 cmdDict = fromGzJson(cmdDict)
@@ -1834,7 +1851,8 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             try:
                 self.clientCommDict['clients'].remove(conn)
             except ValueError:
-                print 'not in clientCommDict', conn
+                #Log.exception('not in clientCommDict %s', conn)
+                pass
 
     def do1ClientCmd(self, conn, cmdDict):
         cmd = cmdDict.get('cmd')
@@ -1850,7 +1868,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             self.dispgroup['objplayers'].append(o)
             conn['teamid'] = o.ID
             conn['teamname'] = tn
-            print tn, 'team made', o.ID
+            Log.info('Join team %s %s', tn, o.ID)
             putParams2Queue(
                 conn.sendQueue,
                 cmd='teamInfo',
@@ -1859,9 +1877,8 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             )
 
         elif cmd == 'del':
-            print 'del team', conn.teamid
+            Log.info('Leave team %s %s', conn.teamname, conn.teamid)
             self.delTeamByID(conn.teamid)
-            # self.clientCommDict['clients'].remove(conn)
             return conn
 
         elif cmd == 'reqState':
@@ -1876,7 +1893,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             tid = cmdDict['team']['teamid']
             thisTeam = self.getTeamByID(tid)
             if thisTeam.servermove:
-                print 'invalid team', thisTeam
+                Log.error('invalid client team %s', thisTeam)
                 return
             actionjson = cmdDict['actions']
             actions = self.deserializeActions(actionjson)
@@ -1892,7 +1909,7 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
             thisTeam.AutoMoveByTime(self.thistick)
 
         else:
-            print 'unknown cmd', cmdDict
+            Log.warn('unknown cmd %s', cmdDict)
 
     def doFireAndAutoMoveByTime(self):
         # 그룹내의 bounceball 들을 AI automove 한다.
@@ -1947,16 +1964,16 @@ class ShootingGameServer(ShootingGameMixin, FPSlogicBase):
         while not self.clientCommDict['quit']:
             self.FPSTimer(0)
             time.sleep(self.newdur / 1000.)
-        print 'end doGame'
+        Log.info('end doGame')
 
 # ================ tcp server ========
 
 
-class TCPGameServer(threading.Thread):
+class TCPGameServer(threading.Thread, SendRecvStatMixin):
 
     def __init__(self, clientCommDict):
         self.clientCommDict = clientCommDict
-        print 'tcp starting server'
+        Log.info('tcp server starting')
         # create an INET, STREAMing socket
         self.serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # reuse address
@@ -1973,7 +1990,8 @@ class TCPGameServer(threading.Thread):
         self.quit = False
         self.recvlist = [self.serversocket]
         self.sendlist = []
-        print 'tcp start server'
+        SendRecvStatMixin.__init__(self)
+        Log.info('tcp server started')
 
     def runService(self):
         tcp_thread = threading.Thread(target=self.serverLoop)
@@ -1981,7 +1999,7 @@ class TCPGameServer(threading.Thread):
         return self, tcp_thread
 
     def addNewClient(self, client, address):
-        print 'client connected ', client, address
+        Log.info('client connected %s %s', client, address)
         protocol = I32sendrecv(client)
         conn = Storage({
             'protocol': protocol,
@@ -1995,7 +2013,7 @@ class TCPGameServer(threading.Thread):
         self.recvlist.append(protocol)
 
     def closeClient(self, p):
-        print 'client disconnected', p
+        Log.info('client disconnected %s', p)
         try:
             self.recvlist.remove(p)
         except ValueError:
@@ -2012,11 +2030,14 @@ class TCPGameServer(threading.Thread):
         p.sock.close()
 
     def serverLoop(self):
-        print 'start serverLoop'
+        Log.info('start serverLoop')
 
         while not self.quit:
             self.sendlist = [
-                s for s in self.recvlist if s != self.serversocket and s.canSend()]
+                s for s in self.recvlist[1:] if s.canSend()]
+            # self.sendlist = [
+            # s for s in self.recvlist if s != self.serversocket and
+            # s.canSend()]
             inputready, outputready, exceptready = select.select(
                 self.recvlist, self.sendlist, [], 1.0 / 120)
             for i in inputready:
@@ -2027,7 +2048,7 @@ class TCPGameServer(threading.Thread):
                 else:
                     try:
                         if i.recv() == 'complete':
-                            i.recvstat.updateFPS()
+                            self.updateRecvStat()
                     except RuntimeError as e:
                         if e.args[0] != "socket connection broken":
                             raise
@@ -2039,17 +2060,18 @@ class TCPGameServer(threading.Thread):
             for o in outputready:
                 try:
                     if o.send() == 'complete':
-                        o.sendstat.updateFPS()
+                        self.updateSendStat()
                 except socket.error as e:
                     # print traceback.format_exc()
                     self.closeClient(i)
 
-        print 'closing serversocket'
+        Log.info('closing serversocket')
         self.serversocket.close()
-        print 'end serverLoop'
+        Log.info('end serverLoop')
+        Log.info('%s', self.getStatInfo())
 
     def shutdown(self):
-        print 'ending tcp server'
+        Log.info('tcp server ending')
         self.quit = True
 
 
@@ -2070,24 +2092,29 @@ def runService():
         'clients': [],
         'quit': False
     }
-    print 'game Server start'
+    Log.info('game Server starting')
 
     server, server_thread = TCPGameServer(clientCommDict).runService()
 
     def sigstophandler(signum, frame):
-        print 'User Termination'
+        Log.info('User Termination')
         clientCommDict['quit'] = True
         server.shutdown()
         server_thread.join(1)
-        print 'server end'
+        Log.info('server end')
         sys.exit(0)
 
     signal.signal(signal.SIGINT, sigstophandler)
 
-    ShootingGameServer(clientCommDict=clientCommDict, aicount=aicount).doGame()
+    ShootingGameServer(
+        clientCommDict=clientCommDict, aicount=aicount, server=server).doGame()
 
 # ================ tcp server end =======
 
 
 if __name__ == "__main__":
     runService()
+    # try:
+    #     raise RuntimeError(" error")
+    # except:
+    #     Log.exception('aa')
