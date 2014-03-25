@@ -123,7 +123,7 @@ class NPCServer(ShootingGameMixin, FPSlogicBase, SendRecvStatMixin):
         putParams2Queue(
             client.sendQueue,
             cmd='act',
-            team=client.teaminfo,
+            teamid=client.teaminfo['teamid'],
             actions=actionjson,
         )
         return True

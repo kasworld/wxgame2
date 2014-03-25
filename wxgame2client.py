@@ -506,7 +506,7 @@ class AIClientMixin(ShootingGameMixin):
         putParams2Queue(
             self.conn.sendQueue,
             cmd='act',
-            team=self.myteam,
+            teamid=self.myteam['teamid'],
             actions=actionjson,
         )
 
