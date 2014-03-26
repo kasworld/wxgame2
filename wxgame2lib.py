@@ -227,7 +227,7 @@ class FPSlogicBase(object):
             newdur = 1
         self.newdur = newdur
 
-    def doFPSlogic(self, thisframe):
+    def doFPSlogic(self):
         pass
 
 

@@ -147,21 +147,48 @@ class ProfileMixin(object):
                 'time').print_stats(20)
 
 
-class TCP2PipeServer(multiprocessing.Process, SendRecvStatMixin, ProfileMixin):
+def makeChannel():
+    _reader1, _writer1 = multiprocessing.Pipe(duplex=False)
+    _reader2, _writer2 = multiprocessing.Pipe(duplex=False)
 
-    def __init__(self):
+    class ch(object):
+
+        def __init__(self, pollfn, readfn, writefn):
+            self.recvcount, self.sendcount = 0, 0
+            self.canReadFrom, self._readfn, self._writefn = pollfn, readfn, writefn
+
+        def getStatInfo(self):
+            return 'recv:{} send:{}'.format(self.recvcount, self.sendcount)
+
+        def readFrom(self):
+            self.recvcount += 1
+            return self._readfn()
+
+        def writeTo(self, obj):
+            self.sendcount += 1
+            return self._writefn(obj)
+
+    return ch(_reader1.poll, _reader1.recv, _writer2.send), ch(_reader2.poll, _reader2.recv, _writer1.send)
+
+
+class TCPServer(multiprocessing.Process, ProfileMixin):
+
+    def __init__(self, servertype):
         multiprocessing.Process.__init__(self)
-        my, self.forgame = makeBiPipe()
-        self.canReadFromGame, self.readFromGame, self.writeToGame = my
+        self.toGameCh, self.forGameCh = makeChannel()
+        self.serverType = servertype
 
     def getChannel(self):
-        return self.forgame
+        return self.forGameCh
+
+    def getStatInfo(self):
+        return 'recv:{} send{}'.format(self.recvcount, self.sendcount)
 
     def run(self):
         self.startProfile()
+        self.recvcount, self.sendcount = 0, 0
 
-        Log.critical('TCP2PipeServer initing pid:%s', self.pid)
-        SendRecvStatMixin.__init__(self)
+        Log.critical('TCPServer initing pid:%s', self.pid)
 
         # create an INET, STREAMing socket
         self.serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -179,7 +206,7 @@ class TCP2PipeServer(multiprocessing.Process, SendRecvStatMixin, ProfileMixin):
         self.clientDict = {}
         self.recvlist = [self.serversocket]
         self.sendlist = []
-        Log.info('TCP2PipeServer started')
+        Log.info('TCPServer started')
 
         self.serverLoop()
 
@@ -195,8 +222,8 @@ class TCP2PipeServer(multiprocessing.Process, SendRecvStatMixin, ProfileMixin):
             for i in inputready:
                 if i == self.serversocket:
                     # handle the server socket
-                    client, address = self.serversocket.accept()
-                    self.addNewClient(client, address)
+                    sock, address = self.serversocket.accept()
+                    self.addNewClient(sock, address)
                 else:
                     try:
                         r = i.recv()
@@ -204,42 +231,45 @@ class TCP2PipeServer(multiprocessing.Process, SendRecvStatMixin, ProfileMixin):
                         # print traceback.format_exc()
                         self.closeClient(i)
                     if r == 'complete':
-                        self.updateRecvStat()
+                        self.recvcount += 1
                     elif r == 'disconnected':
                         self.closeClient(i)
 
             for o in outputready:
                 try:
                     if o.send() == 'complete':
-                        self.updateSendStat()
+                        self.sendcount += 1
                 except socket.error as e:
                     # print traceback.format_exc()
                     self.closeClient(i)
 
-            while self.canReadFromGame():
-                sockid, packet = self.readFromGame()
-                if sockid == -1:
+            while self.toGameCh.canReadFrom():
+                idno, packet = self.toGameCh.readFrom()
+                if idno[-1] == -1:
                     self.quit = True
                     break
-                if sockid in self.clientDict:
-                    self.clientDict[sockid].sendQueue.put(packet)
+                if idno in self.clientDict:
+                    self.clientDict[idno].sendQueue.put(packet)
 
         Log.info('ending serverLoop')
         self.serversocket.close()
         for p in self.recvlist[1:]:
             self.closeClient(p)
         Log.info('end serverLoop')
-        Log.info('%s', self.getStatInfo())
+        Log.critical('TCP stat %s', self.getStatInfo())
+        Log.critical('Ch stat %s', self.toGameCh.getStatInfo())
 
         self.endProfile()
 
-    def addNewClient(self, client, address):
-        Log.info('client connected %s %s', client, address)
+    def addNewClient(self, sock, address):
+        Log.info('client connected %s %s', sock, address)
 
         def newPacketRecved(packet):
-            self.writeToGame((client.fileno(), packet))
-        protocol = I32ClientProtocol(client, newPacketRecved)
-        self.clientDict[client.fileno()] = protocol
+            self.toGameCh.writeTo(
+                ((self.serverType, sock.fileno()), packet)
+            )
+        protocol = I32ClientProtocol(sock, newPacketRecved)
+        self.clientDict[(self.serverType, sock.fileno())] = protocol
         self.recvlist.append(protocol)
 
     def closeClient(self, p):
@@ -253,9 +283,11 @@ class TCP2PipeServer(multiprocessing.Process, SendRecvStatMixin, ProfileMixin):
         except ValueError:
             pass
 
-        self.writeToGame((p.safefileno, toGzJsonParams(cmd='del')))
+        self.toGameCh.writeTo(
+            ((self.serverType, p.safefileno), toGzJsonParams(cmd='del'))
+        )
         try:
-            del self.clientDict[p.safefileno]
+            del self.clientDict[(self.serverType, p.safefileno)]
         except KeyError:
             pass
 
@@ -264,17 +296,18 @@ class TCP2PipeServer(multiprocessing.Process, SendRecvStatMixin, ProfileMixin):
 
 class NPCServer(multiprocessing.Process, FPSlogicBase, ShootingGameMixin, ProfileMixin):
 
-    def __init__(self, aicount):
+    def __init__(self, servertype, aicount):
         multiprocessing.Process.__init__(self)
-        my, self.forgame = makeBiPipe()
-        self.canReadFromGame, self.readFromGame, self.writeToGame = my
+        self.toGameCh, self.forGameCh = makeChannel()
         self.aicount = aicount
+        self.serverType = servertype
 
     def prfps(self, repeatinfo):
-        print 'fps:', self.statFPS
+        Log.critical('fps: %s', self.frameinfo['stat'])
+        Log.critical('game ch %s', self.toGameCh.getStatInfo())
 
     def getChannel(self):
-        return self.forgame
+        return self.forGameCh
 
     def applyState(self, loadlist):
         ShootingGameMixin.applyState(
@@ -283,78 +316,77 @@ class NPCServer(multiprocessing.Process, FPSlogicBase, ShootingGameMixin, Profil
     def run(self):
         self.startProfile()
         Log.critical('NPCServer initing pid:%s', self.pid)
-        self.FPSTimerInit(getFrameTime, 60)
+        self.FPSTimerInit(getFrameTime, 30)
 
         self.dispgroup = {}
         self.dispgroup['effectObjs'] = GameObjectGroup().initialize(
             gameObj=self, spriteClass=SpriteObj, teamcolor=(0x7f, 0x7f, 0x7f))
         self.dispgroup['objplayers'] = []
 
-        #self.registerRepeatFn(self.prfps, 1)
-
         self.quit = False
-        Log.info('NPCServer started')
         self.allInited = False
         self.thistick = getFrameTime()
         self.clientDict = {}
+
+        self.registerRepeatFn(self.prfps, 1)
+        Log.info('NPCServer inited')
+
         for i in range(self.aicount):
-            idno = (1, getSerial())
+            idno = (self.serverType, getSerial())
             self.clientDict[idno] = Storage(
-                idno=idno,
                 teamname=None,
-                teamcolor=None,
                 teamid=None,
                 teamStartTime=None,
             )
             self.makeTeam(idno)
 
-        Log.info('NPC server started')
-        self.clientLoop()
-
-    def makeTeam(self, idno):
-        teamname = 'AI_%08X' % random.getrandbits(32)
-        teamcolor = (random.randint(0, 255),
-                     random.randint(0, 255), random.randint(0, 255))
-        Log.debug('makeTeam %s %s', teamname, teamcolor)
-        self.writeToGame((idno, toGzJsonParams(
-            cmd='makeTeam',
-            teamname=teamname,
-            teamcolor=teamcolor
-        )))
-
-    def madeTeam(self, idno, cmdDict):
-        teamname = cmdDict.get('teamname')
-        teamid = cmdDict.get('teamid')
-        self.clientDict[idno].teamname = teamname
-        self.clientDict[idno].teamid = teamid
-        self.clientDict[idno].teamStartTime = self.thistick
-        Log.debug('joined %s ', self.clientDict[idno])
-
-    def reqState(self):
-        self.writeToGame(((1, 0), toGzJsonParams(cmd='reqState')))
-
-    def doFPSlogic(self):
-        self.thistick = self.frameinfo['thistime']
-
-    def clientLoop(self):
-        Log.info('start clientLoop')
         self.sendlist = []
         self.reqState()
 
         while not self.quit:
-            if self.canReadFromGame():
-                idno, packet = self.readFromGame()
-                if idno == -1:
-                    self.quit = True
-                    break
-                if packet is not None:
-                    self.process1Cmd(idno, packet)
-
             self.FPSTimer(0)
             time.sleep(self.newdur / 1000.)
+            self.thistick = self.frameinfo['thistime']
 
-        Log.info('ending clientLoop')
+        Log.critical('NPCServer end. Ch stat %s', self.toGameCh.getStatInfo())
         self.endProfile()
+
+    def doFPSlogic(self):
+        i = self.aicount+1
+        while self.toGameCh.canReadFrom() and i > 0 :
+            i -= 1
+            idno, packet = self.toGameCh.readFrom()
+            if idno[-1] == -1:
+                self.quit = True
+                break
+            if packet is not None:
+                self.process1Cmd(idno, packet)
+
+    def makeTeam(self, idno):
+        teamname = 'AI_%08X' % random.getrandbits(32)
+        teamcolor = [random.randint(0, 255) for i in [0, 1, 2]]
+        Log.debug('makeTeam %s %s', teamname, teamcolor)
+        self.toGameCh.writeTo(
+            (idno,
+             toGzJsonParams(
+                 cmd='makeTeam',
+                 teamname=teamname,
+                 teamcolor=teamcolor
+             )))
+
+    def madeTeam(self, oid, cmdDict):
+        teamname = cmdDict.get('teamname')
+        teamid = cmdDict.get('teamid')
+        self.clientDict[oid].teamname = teamname
+        self.clientDict[oid].teamid = teamid
+        self.clientDict[oid].teamStartTime = self.thistick
+        Log.debug('joined %s ', self.clientDict[oid])
+
+    def reqState(self):
+        self.toGameCh.writeTo(
+            ((self.serverType, 0),
+             toGzJsonParams(cmd='reqState')
+             ))
 
     def process1Cmd(self, idno, packet):
         cmdDict = fromGzJson(packet)
@@ -365,8 +397,8 @@ class NPCServer(multiprocessing.Process, FPSlogicBase, ShootingGameMixin, Profil
 
             if not self.allInited:  # first time
                 allSent = True
-                for idno, c in self.clientDict.iteritems():
-                    if self.makeClientAIAction(idno) is not True:
+                for i, c in self.clientDict.iteritems():
+                    if self.makeClientAIAction(i) is not True:
                         allSent = False
                 if allSent:
                     self.allInited = True
@@ -395,29 +427,37 @@ class NPCServer(multiprocessing.Process, FPSlogicBase, ShootingGameMixin, Profil
         )
         actions = aa.SelectAction(targets, aa[0])
         actionjson = self.serializeActions(actions)
-        self.writeToGame((idno, toGzJsonParams(
-            cmd='act',
-            teamid=client.teamid,
-            actions=actionjson,
-        )))
+        self.toGameCh.writeTo(
+            (idno,
+             toGzJsonParams(
+             cmd='act',
+             teamid=client.teamid,
+             actions=actionjson,
+             )))
         return True
+
+
+NPCTypeID = 1
+TCPTypeID = 2
+GameTypeID = 3
+MainTypeID = 4
 
 
 class GameLogicServer(multiprocessing.Process, ShootingGameMixin, FPSlogicBase, ProfileMixin):
 
-    def __init__(self, qameCh, npcCh):
+    def __init__(self, servertype, tcpCh, npcCh):
         multiprocessing.Process.__init__(self)
-        self.canReadFromTcp, self.readFromTcp, self.writeToTcp = qameCh
-        self.canReadFromNpc, self.readFromNpc, self.writeToNpc = npcCh
-
-        my, self.formain = makeBiPipe()
-        self.canReadFromMain, self.readFromMain, self.writeToMain = my
+        self.serverType = servertype
+        self.tcpCh = tcpCh
+        self.npcCh = npcCh
+        self.toMainCh, self.forMainCh = makeChannel()
 
     def getChannel(self):
-        return self.formain
+        return self.forMainCh
 
     def run(self):
         self.startProfile()
+        self.recvcount, self.sendcount = 0, 0
         Log.critical('GameLogicServer initing pid:%s', self.pid)
         self.FPSTimerInit(getFrameTime, 60)
 
@@ -435,19 +475,19 @@ class GameLogicServer(multiprocessing.Process, ShootingGameMixin, FPSlogicBase, 
         self.quit = False
 
         Log.info('GameLogicServer inited')
-        #self.registerRepeatFn(self.prfps, 1)
+        self.registerRepeatFn(self.prfps, 1)
 
         self.gameLoop()
 
     def gameLoop(self):
         while not self.quit:
-            if self.canReadFromMain():
+            if self.toMainCh.canReadFrom():
                 break
             self.FPSTimer(0)
             time.sleep(self.newdur / 1000.)
 
-        self.writeToTcp((-1, None))  # quit tcp server
-        self.writeToNpc((-1, None))  # quit tcp server
+        self.tcpCh.writeTo(((0, -1), None))  # quit tcp server
+        self.npcCh.writeTo(((0, -1), None))  # quit npc server
         Log.info('end doGame')
         self.prfps(0)
         self.endProfile()
@@ -460,6 +500,9 @@ class GameLogicServer(multiprocessing.Process, ShootingGameMixin, FPSlogicBase, 
         Log.critical('gamestatelen: %s', self.statGState)
         Log.critical('fps: %s', self.frameinfo['stat'])
         Log.critical('clients %s ', len(self.clients))
+        Log.critical('tcp channel %s ', self.tcpCh.getStatInfo())
+        Log.critical('npc channel %s ', self.npcCh.getStatInfo())
+        Log.critical('main channel %s ', self.toMainCh.getStatInfo())
 
     def diaplayScore(self):
         teamscore = {}
@@ -477,14 +520,14 @@ class GameLogicServer(multiprocessing.Process, ShootingGameMixin, FPSlogicBase, 
                     objcount=len(j)
                 )
 
-        Log.critical("{:12} {:15} {:>16} {:>8} {:>8} {:8}".format(
+        Log.info("{:12} {:15} {:>16} {:>8} {:>8} {:8}".format(
             'teamname', 'color', 'AI type', 'member', 'score', 'objcount'
         ))
         sortedinfo = sorted(
             teamscore.keys(), key=lambda x: -teamscore[x]['teamscore'])
 
         for j in sortedinfo:
-            Log.critical("{:12} {:15} {:>16} {:8} {:8.4f} {:8}".format(
+            Log.info("{:12} {:15} {:>16} {:8} {:8.4f} {:8}".format(
                 j,
                 teamscore[j]['color'],
                 teamscore[j]['ai'],
@@ -559,25 +602,30 @@ class GameLogicServer(multiprocessing.Process, ShootingGameMixin, FPSlogicBase, 
         return o
 
     def processClientCmd(self):
-        while self.canReadFromTcp():
-            clientid, packet = self.readFromTcp()
-            cmdDict = fromGzJson(packet)
-            self.do1ClientCmd(clientid, cmdDict)
+        #Log.debug('in processClientCmd')
+        for i in range(len(self.clients) / 2 + 1):
+            if self.tcpCh.canReadFrom():
+                clientid, packet = self.tcpCh.readFrom()
+                cmdDict = fromGzJson(packet)
+                self.do1ClientCmd(clientid, cmdDict)
 
-        while self.canReadFromNpc():
-            clientid, packet = self.readFromNpc()
-            cmdDict = fromGzJson(packet)
-            self.do1ClientCmd(clientid, cmdDict)
+            if self.npcCh.canReadFrom():
+                clientid, packet = self.npcCh.readFrom()
+                cmdDict = fromGzJson(packet)
+                self.do1ClientCmd(clientid, cmdDict)
 
     def do1ClientCmd(self, clientid, cmdDict):
         teaminfo = self.clients.get(clientid)
-        if isinstance(clientid, tuple):
-            writefn = self.writeToNpc
-        else:
-            writefn = self.writeToTcp
         if teaminfo is None:
             self.clients[clientid] = {}
             teaminfo = self.clients[clientid]
+
+        writedict = {
+            NPCTypeID: self.npcCh.writeTo,
+            TCPTypeID: self.tcpCh.writeTo,
+        }
+        writefn = writedict[clientid[0]]
+
         cmd = cmdDict.get('cmd')
 
         if cmd == 'makeTeam':
@@ -594,7 +642,7 @@ class GameLogicServer(multiprocessing.Process, ShootingGameMixin, FPSlogicBase, 
             teaminfo['teamname'] = tn
             writefn((clientid, toGzJsonParams(
                 cmd='teamInfo', teamname=tn, teamid=o.ID)))
-            Log.debug('Join team %s %s', tn, o.ID)
+            Log.debug('Join team %s %s', clientid, teaminfo)
 
         elif cmd == 'del':
             Log.debug('Leave team %s', teaminfo)
@@ -695,23 +743,33 @@ def runServer():
 
     Log.critical('wxgame2server starting')
 
-    tcp_process = TCP2PipeServer()
+    tcp_process = TCPServer(servertype=TCPTypeID)
     tcp_process.start()
-    npc_process = NPCServer(aicount=aicount)
+    npc_process = NPCServer(aicount=aicount, servertype=NPCTypeID)
     npc_process.start()
 
     game_process = GameLogicServer(
-        qameCh=tcp_process.getChannel(), npcCh=npc_process.getChannel())
+        tcpCh=tcp_process.getChannel(),
+        npcCh=npc_process.getChannel(),
+        servertype=GameTypeID
+    )
     game_process.start()
-    canReadFromGame, readFromGame, writeToGame = game_process.getChannel()
+
+    toGameCh = game_process.getChannel()
 
     time.sleep(timetorun)
 
     Log.critical('wxgame2server ending')
-    writeToGame((-1, None))
+    toGameCh.writeTo(((0, -1), None))
     game_process.join(1)
     tcp_process.join(1)
     npc_process.join(1)
 
 if __name__ == "__main__":
     runServer()
+
+    # me, you = makeChannel()
+    # for i in range(1000000):
+    #     me.writeTo('hello')
+    #     you.readFrom()
+    # print me.getStatInfo()
