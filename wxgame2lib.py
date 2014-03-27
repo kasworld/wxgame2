@@ -11,7 +11,7 @@ collision은 원형: 현재 프레임의 위치만을 기준으로 검출한다.
 모든? action은 frame 간의 시간차에 따라 보정 된다.
 문제점은 frame간에 지나가 버린 경우 이동 루트상으론 collision 이 일어나야 하지만 검출 불가.
 """
-Version = '2.2.0'
+Version = '2.4.0'
 import time
 import math
 import random
@@ -150,8 +150,7 @@ class Statistics(object):
 
     def updateFPS(self):
         if not self.timeFn:
-            Log.error('NOT FPS stat')
-            return
+            raise AttributeError('Statistics not inited for FPS')
         thistime = self.timeFn()
         self.frames.append(thistime)
         while(self.frames[-1] - self.frames[0] > 1):
@@ -171,15 +170,41 @@ class Statistics(object):
         return self.formatstr % self.datadict
 
 
-class FPSlogicBase(object):
+class FPSMixin(object):
 
-    def FPSTimerInit(self, frameTime, maxFPS=70, ):
-        self.maxFPS = maxFPS
+    """ frames per second or frame pacing system
+    framepacing to maxFPS
+
+    class workClass(FPSMixin):
+        def __init__(self):
+            self.FPSInit(time.time, 60)
+            self.registerRepeatFn( self.calledEvery1secFn , 1)
+            self.registerRepeatFn( self.calledEvery2secFn , 2)
+            while True:
+                self.FPSRun()
+                self.FPSYield()
+
+        def FPSMain(self): # called 60 / sec
+            # your code here
+
+        def calledEvery1secFn(self):
+            pass
+        def calledEvery2secFn(self):
+            pass
+    """
+
+    def FPSInit(self, frameTimeFn, maxFPS):
         self.repeatingcalldict = {}
-        self.pause = False
-        self.frameTime = frameTime
-        self.statFPS = Statistics(timeFn=self.frameTime)
-        self.frameinfo = {}
+        self.frameinfo = Storage(
+            stat=Statistics(timeFn=frameTimeFn),
+            pause=False,
+            maxFPS=maxFPS,
+            frameTimeFn=frameTimeFn,
+            thisFrameTime=frameTimeFn(),
+            last_ms=0.1,
+            lastFPS=10.0,
+            remain_ms=1,
+        )
 
     def registerRepeatFn(self, fn, dursec):
         """
@@ -193,41 +218,49 @@ class FPSlogicBase(object):
         """
         self.repeatingcalldict[fn] = {
             "dursec": dursec,
-            "oldtime": self.frameTime(),
-            "starttime": self.frameTime(),
+            "oldtime": self.frameinfo.frameTimeFn(),
+            "starttime": self.frameinfo.frameTimeFn(),
             "repeatcount": 0}
         return self
 
     def unRegisterRepeatFn(self, fn):
         return self.repeatingcalldict.pop(fn, [])
 
-    def FPSTimer(self, evt):
-        thistime = self.frameTime()
-        frames = self.statFPS.updateFPS()
+    def FPSRun(self):
+        self.frameinfo.thisFrameTime = self.frameinfo.frameTimeFn()
+        frames = self.frameinfo.stat.updateFPS()
 
-        difftime = frames[-1] - frames[-2] if len(frames) > 1 else 0.1
-        self.frameinfo = {
-            'stat': self.statFPS,
-            'thistime': thistime,
-            'ThisFPS': 1 / difftime
-        }
+        self.frameinfo.last_ms = frames[
+            -1] - frames[-2] if len(frames) > 1 else 0.1
+        self.frameinfo.lastFPS = 1 / self.frameinfo.last_ms
 
-        if not self.pause:
-            self.doFPSlogic()
+        if not self.frameinfo.pause:
+            self.FPSMain()
 
         for fn, d in self.repeatingcalldict.iteritems():
-            if thistime - d["oldtime"] > d["dursec"]:
-                self.repeatingcalldict[fn]["oldtime"] = thistime
+            if self.frameinfo.thisFrameTime - d["oldtime"] > d["dursec"]:
+                self.repeatingcalldict[fn][
+                    "oldtime"] = self.frameinfo.thisFrameTime
                 self.repeatingcalldict[fn]["repeatcount"] += 1
                 fn(d)
 
-        nexttime = (self.frameTime() - thistime) * 1000
-        newdur = min(1000, max(difftime * 800, 1000 / self.maxFPS) - nexttime)
-        if newdur < 1:
-            newdur = 1
-        self.newdur = newdur
+        nexttime = (self.frameinfo.frameTimeFn()
+                    - self.frameinfo.thisFrameTime) * 1000
 
-    def doFPSlogic(self):
+        remain_ms = min(1000, 1000 / self.frameinfo.maxFPS - nexttime)
+        # remain_ms = min(
+        # 1000, max(self.frameinfo.last_ms * 800, 1000 / self.frameinfo.maxFPS)
+        # - nexttime)
+        if remain_ms < 1:
+            remain_ms = 0
+        self.frameinfo.remain_ms = remain_ms
+
+    def FPSYield(self):
+        if self.frameinfo.remain_ms > 0:
+            time.sleep(self.frameinfo.remain_ms / 1000.0)
+
+    def FPSMain(self):
+        """ overide this """
         pass
 
 

@@ -24,7 +24,7 @@ import wx.lib.colourdb
 
 from euclid import Vector2
 
-from wxgame2lib import SpriteObj, random2pi, FPSlogicBase, updateDict, fromGzJson
+from wxgame2lib import SpriteObj, random2pi, FPSMixin, updateDict, fromGzJson
 from wxgame2lib import getFrameTime, putParams2Queue, getLogger, I32sendrecv
 from wxgame2lib import ShootingGameMixin, Storage
 
@@ -155,21 +155,6 @@ class GameResource(object):
             rtn += rrtn
         return rtn
 
-
-class FPSlogic(FPSlogicBase):
-
-    def FPSTimerInit(self, frameTime, maxFPS=70):
-        FPSlogicBase.FPSTimerInit(self, frameTime, maxFPS)
-        self.Bind(wx.EVT_TIMER, self.FPSTimer)
-        self.timer = wx.Timer(self)
-        self.timer.Start(1000 / self.maxFPS, oneShot=True)
-
-    def FPSTimer(self, evt):
-        FPSlogicBase.FPSTimer(self, evt)
-        self.timer.Start(self.newdur, oneShot=True)
-
-    def FPSTimerDel(self):
-        self.timer.Stop()
 
 g_rcs = GameResource('resource')
 g_frameinfo = {}
@@ -498,7 +483,7 @@ class AIClientMixin(ShootingGameMixin):
             'objplayers'] if tt.teamname != aa.teamname]
         aa.prepareActions(
             targets,
-            self.frameinfo['ThisFPS'],
+            self.frameinfo.lastFPS,
             self.thistick
         )
         actions = aa.SelectAction(targets, aa[0])
@@ -553,6 +538,22 @@ class AIClientMixin(ShootingGameMixin):
                 Log.warn('unknown cmd %s', cmdDict)
 
 
+class FPSlogic(FPSMixin):
+
+    def FPSInit(self, frameTime, maxFPS=70):
+        FPSMixin.FPSInit(self, frameTime, maxFPS)
+        self.Bind(wx.EVT_TIMER, self.FPSTimer)
+        self.timer = wx.Timer(self)
+        self.timer.Start(1000 / maxFPS, oneShot=True)
+
+    def FPSTimer(self, evt):
+        FPSMixin.FPSRun(self)
+        self.timer.Start(self.frameinfo.remain_ms, oneShot=True)
+
+    def FPSTimerDel(self):
+        self.timer.Stop()
+
+
 class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
 
     def initGroups(self, groupclass, spriteClass):
@@ -573,7 +574,7 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
         self.Bind(wx.EVT_PAINT, self._OnPaint)
         self.Bind(wx.EVT_SIZE, self._OnSize)
         self.Bind(wx.EVT_KEY_DOWN, self.OnKeyDown)
-        self.FPSTimerInit(getFrameTime, 60)
+        self.FPSInit(getFrameTime, 60)
         self.SetBackgroundColour(wx.Colour(0x0, 0x0, 0x0))
 
         self.initGroups(GameObjectDisplayGroup, ShootingGameObject)
@@ -587,7 +588,7 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
         self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
-        print 'fps:', self.statFPS
+        print 'fps:', self.frameinfo.stat
         if self.conn is not None:
             print self.conn.protocol.getStatInfo()
 
@@ -649,9 +650,9 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
         AIClientMixin.applyState(
             self, GameObjectDisplayGroup, ShootingGameObject, loadlist)
 
-    def doFPSlogic(self):
+    def FPSMain(self):
         g_frameinfo.update(self.frameinfo)
-        self.thistick = self.frameinfo['thistime']
+        self.thistick = self.frameinfo.thisFrameTime
 
         if self.conn is not None:
             self.processCmd()

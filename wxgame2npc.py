@@ -14,7 +14,7 @@ import Queue
 import time
 import logging
 import socket
-from wxgame2lib import SpriteObj, FPSlogicBase, SendRecvStatMixin, fromGzJson, ShootingGameMixin
+from wxgame2lib import SpriteObj, FPSMixin, SendRecvStatMixin, fromGzJson, ShootingGameMixin
 from wxgame2lib import getFrameTime, putParams2Queue, I32sendrecv, getLogger
 from wxgame2lib import AI2 as GameObjectGroup
 
@@ -74,10 +74,10 @@ class TCPGameClient(I32sendrecv):
         )
 
 
-class NPCServer(ShootingGameMixin, FPSlogicBase, SendRecvStatMixin):
+class NPCServer(ShootingGameMixin, FPSMixin, SendRecvStatMixin):
 
     def __init__(self, *args, **kwds):
-        self.FPSTimerInit(getFrameTime, 60)
+        self.FPSInit(getFrameTime, 60)
         self.dispgroup = {}
         self.dispgroup['effectObjs'] = GameObjectGroup().initialize(
             gameObj=self, spriteClass=SpriteObj, teamcolor=(0x7f, 0x7f, 0x7f))
@@ -89,14 +89,14 @@ class NPCServer(ShootingGameMixin, FPSlogicBase, SendRecvStatMixin):
         self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
-        print 'fps:', self.statFPS
+        print 'fps:', self.frameinfo.stat
         print 'packet:', self.getStatInfo()
 
     def applyState(self, loadlist):
         ShootingGameMixin.applyState(self, GameObjectGroup, SpriteObj, loadlist)
 
-    def doFPSlogic(self):
-        self.thistick = self.frameinfo['thistime']
+    def FPSMain(self):
+        self.thistick = self.frameinfo.thisFrameTime
         self.processCmd()
 
     def processCmd(self):
@@ -115,7 +115,7 @@ class NPCServer(ShootingGameMixin, FPSlogicBase, SendRecvStatMixin):
             'objplayers'] if tt.teamname != aa.teamname]
         aa.prepareActions(
             targets,
-            self.frameinfo['ThisFPS'],
+            self.frameinfo.lastFPS,
             self.thistick
         )
         actions = aa.SelectAction(targets, aa[0])
@@ -200,8 +200,8 @@ class NPCServer(ShootingGameMixin, FPSlogicBase, SendRecvStatMixin):
                     # print traceback.format_exc()
                     self.closeClient(i)
 
-            self.FPSTimer(0)
-            #time.sleep(self.newdur / 1000.)
+            self.FPSRun()
+            self.FPSYield()
 
         Log.info('ending clientLoop')
         for c in self.clients:
