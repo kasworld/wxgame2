@@ -466,11 +466,20 @@ class GameObjectDisplayGroup(GameObjectGroup):
         return self
 
 
-class AIClientMixin(ShootingGameMixin):
+class ShootingGameClient(ShootingGameMixin, wx.Control, FPSMixin):
 
-    def __init__(self, *args, **kwds):
-        self.conn = kwds.pop('conn')
-        self.myteam = None
+    def FPSInit(self, frameTime, maxFPS=70):
+        FPSMixin.FPSInit(self, frameTime, maxFPS)
+        self.Bind(wx.EVT_TIMER, self.FPSTimer)
+        self.timer = wx.Timer(self)
+        self.timer.Start(1000 / maxFPS, oneShot=True)
+
+    def FPSTimer(self, evt):
+        FPSMixin.FPSRun(self)
+        self.timer.Start(self.frameinfo.remain_ms, oneShot=True)
+
+    def FPSTimerDel(self):
+        self.timer.Stop()
 
     def makeClientAIAction(self):
         # make AI action
@@ -537,25 +546,6 @@ class AIClientMixin(ShootingGameMixin):
             else:
                 Log.warn('unknown cmd %s', cmdDict)
 
-
-class FPSlogic(FPSMixin):
-
-    def FPSInit(self, frameTime, maxFPS=70):
-        FPSMixin.FPSInit(self, frameTime, maxFPS)
-        self.Bind(wx.EVT_TIMER, self.FPSTimer)
-        self.timer = wx.Timer(self)
-        self.timer.Start(1000 / maxFPS, oneShot=True)
-
-    def FPSTimer(self, evt):
-        FPSMixin.FPSRun(self)
-        self.timer.Start(self.frameinfo.remain_ms, oneShot=True)
-
-    def FPSTimerDel(self):
-        self.timer.Stop()
-
-
-class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
-
     def initGroups(self, groupclass, spriteClass):
         self.dispgroup = {}
         self.dispgroup['backgroup'] = groupclass().initialize(
@@ -567,8 +557,8 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
         self.dispgroup['objplayers'] = []
 
     def __init__(self, *args, **kwds):
-        AIClientMixin.__init__(self, *args, **kwds)
-        del kwds['conn']
+        self.conn = kwds.pop('conn')
+        self.myteam = None
 
         wx.Control.__init__(self, *args, **kwds)
         self.Bind(wx.EVT_PAINT, self._OnPaint)
@@ -643,11 +633,11 @@ class ShootingGameClient(AIClientMixin, wx.Control, FPSlogic):
         self.dispgroup['frontgroup'].DrawToWxDC(pdc)
 
     def addNewObj2Team(self, team, objdef):
-        AIClientMixin.addNewObj2Team(self, team, objdef)
+        ShootingGameMixin.addNewObj2Team(self, team, objdef)
         team[-1].initResource(team.rcsdict[team[-1].objtype])
 
     def applyState(self, loadlist):
-        AIClientMixin.applyState(
+        ShootingGameMixin.applyState(
             self, GameObjectDisplayGroup, ShootingGameObject, loadlist)
 
     def FPSMain(self):
@@ -706,7 +696,7 @@ class MyFrame(wx.Frame):
         self.gamePannel.SetFocus()
 
 
-class TCPGameClient(object):
+class TCPGameClientMT(threading.Thread):
 
     def __str__(self):
         return self.conn.protocol.getStatInfo()
@@ -731,15 +721,13 @@ class TCPGameClient(object):
         except RuntimeError as e:
             if e.args[0] != "socket connection broken":
                 raise RuntimeError(e)
+            print e
 
     def shutdown(self):
         self.conn.quit = True
         self.conn.protocol.sock.close()
         Log.info('end connection')
         Log.info('%s', self)
-
-
-class TCPGameClientMT(TCPGameClient, threading.Thread):
 
     def runService(self):
         client_thread = threading.Thread(target=self.clientLoop)

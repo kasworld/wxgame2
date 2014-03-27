@@ -22,6 +22,7 @@ import logging
 import sys
 import argparse
 import Queue
+import multiprocessing.queues
 
 from wxgame2lib import getFrameTime, toGzJson, SpriteObj, FPSMixin
 from wxgame2lib import fromGzJson, Statistics, Storage, getSerial
@@ -149,7 +150,7 @@ class ProfileMixin(object):
                 'time').print_stats(20)
 
 
-def makeChannel():
+def makeChannel_pipe():
     """ performance
     me, you = makeChannel()
     st = time.time()
@@ -187,6 +188,49 @@ def makeChannel():
             return self._writefn(obj)
 
     return ch(_reader1.poll, _reader1.recv, _writer2.send), ch(_reader2.poll, _reader2.recv, _writer1.send)
+
+
+def makeChannel():
+    """ performance
+    me, you = makeChannel()
+    st = time.time()
+    count = 1000000
+    for i in xrange(count):
+        me.writeTo('hello')
+        you.readFrom()
+    ed = time.time()
+    print ed - st, count / (ed - st)
+    2.67726302147 373515.78533
+    """
+    _q1 = multiprocessing.queues.SimpleQueue()
+    _q2 = multiprocessing.queues.SimpleQueue()
+
+    class ch(object):
+
+        def __init__(self, _empty, _get, _put):
+            self.initedTime = time.time()
+            self.recvcount, self.sendcount = 0, 0
+            self._empty, self._get, self._put = _empty, _get, _put
+
+        def getStatInfo(self):
+            t = time.time() - self.initedTime
+            return 'recv:{} {}/s send:{} {}/s'.format(
+                self.recvcount, self.recvcount / t,
+                self.sendcount, self.sendcount / t
+            )
+
+        def canReadFrom(self):
+            return not self._empty()
+
+        def readFrom(self):
+            self.recvcount += 1
+            return self._get()
+
+        def writeTo(self, obj):
+            self.sendcount += 1
+            return self._put(obj)
+
+    return ch(_q1.empty, _q1.get, _q2.put), ch(_q2.empty, _q2.get, _q1.put)
 
 
 class TCPServer(multiprocessing.Process, ProfileMixin):
@@ -374,7 +418,7 @@ class NPCServer(multiprocessing.Process, FPSMixin, ShootingGameMixin, ProfileMix
     def run(self):
         self.startProfile()
         Log.critical('NPCServer initing pid:%s', self.pid)
-        self.FPSInit(getFrameTime, 10)
+        self.FPSInit(getFrameTime, 60)
 
         self.dispgroup = {}
         self.dispgroup['effectObjs'] = GameObjectGroup().initialize(
@@ -810,4 +854,4 @@ def chbench():
 
 if __name__ == "__main__":
     runServer()
-    # chbench()
+    #chbench()
