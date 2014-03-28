@@ -11,7 +11,7 @@ collision은 원형: 현재 프레임의 위치만을 기준으로 검출한다.
 모든? action은 frame 간의 시간차에 따라 보정 된다.
 문제점은 frame간에 지나가 버린 경우 이동 루트상으론 collision 이 일어나야 하지만 검출 불가.
 """
-Version = '2.4.0'
+Version = '2.5.0'
 import time
 import math
 import random
@@ -24,6 +24,9 @@ except:
 import sys
 import Queue
 import select
+import multiprocessing
+import cProfile as Profile
+import pstats
 import socket
 import logging
 import struct
@@ -264,6 +267,29 @@ class FPSMixin(object):
         pass
 
 
+class ProfileMixin(object):
+
+    def __init__(self, profile):
+        if profile:
+            self.begin = self._begin
+            self.end = self._end
+        else:
+            self.begin = self._dummy
+            self.end = self._dummy
+
+    def _dummy(self):
+        pass
+
+    def _begin(self):
+        self.profile = Profile.Profile()
+        self.profile.enable()
+
+    def _end(self):
+        self.profile.disable()
+        pstats.Stats(self.profile).strip_dirs().sort_stats(
+            'time').print_stats(20)
+
+
 class SendRecvStatMixin(object):
 
     def __init__(self):
@@ -389,6 +415,145 @@ class I32sendrecv(SendRecvStatMixin):
     def fileno(self):
         # for select
         return self.sock.fileno()
+
+
+class I32ClientProtocol(object):
+
+    headerStruct = struct.Struct('!I')
+    headerLen = struct.calcsize('!I')
+
+    def __init__(self, sock, recvcallback):
+        self.recvcallback = recvcallback
+        self.sendQueue = Queue.Queue()
+        self.sock = sock
+        self.safefileno = sock.fileno()
+        self.readbuf = []  # memorybuf, toreadlen , buf state
+        self.writebuf = []  # memorybuf, towritelen
+
+    def __str__(self):
+        return '[{}:{}:{}:{}]'.format(
+            self.__class__.__name__,
+            self.sock,
+            self.readbuf,
+            self.writebuf,
+        )
+
+    def recv(self):
+        """ async recv
+        recv completed packet is put to recv packet
+        """
+        if self.readbuf == []:  # read header
+            self.readbuf = [
+                memoryview(bytearray(self.headerLen)),
+                self.headerLen,
+                'header'
+            ]
+
+        nbytes = self.sock.recv_into(
+            self.readbuf[0][-self.readbuf[1]:], self.readbuf[1])
+        if nbytes == 0:
+            return 'disconnected'
+        self.readbuf[1] -= nbytes
+
+        if self.readbuf[1] == 0:  # complete recv
+            if self.readbuf[2] == 'header':
+                bodylen = self.headerStruct.unpack(
+                    self.readbuf[0].tobytes())[0]
+                self.readbuf = [
+                    memoryview(bytearray(bodylen)),
+                    bodylen,
+                    'body'
+                ]
+            elif self.readbuf[2] == 'body':
+                self.recvcallback(self.readbuf[0].tobytes())
+                self.readbuf = []
+                return 'complete'
+            else:
+                Log.error('invalid recv state %s', self.readbuf[2])
+                return 'unknown'
+        return 'cont'
+
+    def canSend(self):
+        return not self.sendQueue.empty() or len(self.writebuf) != 0
+
+    def send(self):
+        if self.sendQueue.empty() and len(self.writebuf) == 0:
+            return 'sleep'  # send queue empty
+        if len(self.writebuf) == 0:  # send new packet
+            tosenddata = self.sendQueue.get()
+            headerdata = self.headerStruct.pack(len(tosenddata))
+            self.writebuf = [
+                [memoryview(headerdata), 0],
+                [memoryview(tosenddata), 0]
+            ]
+        wdata = self.writebuf[0]
+        sentlen = self.sock.send(wdata[0][wdata[1]:])
+        if sentlen == 0:
+            raise RuntimeError("socket connection broken")
+        wdata[1] += sentlen
+        if len(wdata[0]) == wdata[1]:  # complete send
+            del self.writebuf[0]
+            if len(self.writebuf) == 0:
+                return 'complete'
+        return 'cont'
+
+    def fileno(self):
+        return self.sock.fileno()
+
+
+class ChannelPipe(object):
+
+    def __init__(self, reader, writer):
+        self.initedTime = time.time()
+        self.recvcount, self.sendcount = 0, 0
+        self.sendQueue = Queue.Queue()
+
+        self.reader, self.writer = reader, writer
+        self.canreadfn = self.reader.poll
+        self.readfn = self.reader.recv
+        self.writefn = self.writer.send
+
+    def __str__(self):
+        return '[{}:{}:{}:{}]'.format(
+            self.__class__.__name__,
+            self.reader,
+            self.writer,
+            self.getStatInfo(),
+        )
+
+    def getStatInfo(self):
+        t = time.time() - self.initedTime
+        return 'recv:{} {}/s send:{} {}/s'.format(
+            self.recvcount, self.recvcount / t,
+            self.sendcount, self.sendcount / t
+        )
+
+    def canReadFrom(self):
+        return self.canreadfn()
+
+    def readFrom(self):
+        self.recvcount += 1
+        return self.readfn()
+
+    def canSend(self):
+        return not self.sendQueue.empty()
+
+    def writeFromQueue(self):
+        if self.sendQueue.empty():
+            return 'sleep'  # send queue empty
+        self.writeTo(self.sendQueue.get())
+
+    def writeTo(self, obj):
+        self.sendcount += 1
+        return self.writefn(obj)
+
+
+def makeChannel():
+    reader1, writer1 = multiprocessing.Pipe(duplex=False)
+    reader2, writer2 = multiprocessing.Pipe(duplex=False)
+    return ChannelPipe(reader1, writer2), ChannelPipe(reader2, writer1)
+
+# ================================
 
 
 def updateDict(dest, src):

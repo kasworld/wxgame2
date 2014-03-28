@@ -1,28 +1,56 @@
-wxgame2
-=======
+# wxgame2
 
-python game framework using wxpython
+## python game framework using wxpython
 
-tested in
-xubuntu 13.10
-python 2.7.x ,
-wxpython 2.8.x
+- 2d shooting game library
+- game AI 
+- game observer mode
+- server/client works like mmorpg 
+- server run game logic and decision 
+- client get environment info from server and send AI action to serve
+- separated NPC(AI) server, game logic server, client reception server
 
-if wxpython 3.0 and windows :
-    wx.color->wx.colour
+### requirement (tested and developed by)
 
-wxgame2server.py : no ui server
-wxgame2client.py : ui client
+- (x)ubuntu 13.10 
+- python 2.7.x
+- wxpython 2.8.x
 
-client option
--s serverip
-  server ip/name to connect
--t teamname
-  AI team name to use (in sever)
+### wxgame2server.py
 
-if -t is ommitted client is work as observer mode (no ai team , just visualize game state)
+- game server
+- no need wxpython, and can be run by pypy
+- fork 4 process
+	- main : main process
+	- game logic : GameLogicServer class : game logic decision 
+	- npc : NPCServer class : server side NPC AI 
+	- tcp : TCPServer class : client connection reception 
+- see help by -h option
 
-korean discription is
+### wxgame2client.py
+
+- ui client / observer
+- need wxpython 
+- client option
+	-s serverip
+	: server ip/name to connect
+	-t teamname
+	: AI team name to use (in sever)
+	: if -t is ommitted client is work as observer mode (no ai team , just visualize game state)
+
+### wxgame2npc.py
+
+- non ui AI client for server load test 
+
+### wxgame2lib.py
+
+- common library code
+
+### wxgame2single.py
+
+- old standalone wxgame2 
+
+## korean discription is
 
 http://kasw.blogspot.kr/2014/01/github.html
 
@@ -32,8 +60,7 @@ http://kasw.blogspot.kr/2014/03/wxgame2_15.html
 
 http://kasw.blogspot.kr/2014/03/wxgame2_22.html
 
-update 2014-03-02
-----------------
+## update 2014-03-02
 
 wxgame2.py
 
@@ -46,8 +73,7 @@ wxgame2server.py, wxgame2client.py
 - C/S communication using file/pickle
 
 
-update 2014-03-07
-----------------
+## update 2014-03-07
 
 wxgame2server.py, wxgame2client.py
 
@@ -58,8 +84,8 @@ wxgame2server.py, wxgame2client.py
 - team score print
 
 
-update 2014-03-22
------------------
+## update 2014-03-22
+
 - performance tunning
 - observer mode
 - remove resource not used
@@ -67,56 +93,65 @@ update 2014-03-22
 - fix cpu usage issue
 
 
+## update 2014-03-28
 
-C/S protocol
-------------
+server loop changed to select 
+
+inter server communication use pipe 
+
+profile and time-run add for performance test 
+
+standalone npc server(for load test)
+
+server process added
+
+- server/client works like mmorpg 
+- server run game logic and decision 
+- client get environment info from server and send AI action to serve
+- separated NPC(AI) server, game logic server, client reception server
+
+
+
+## C/S protocol
 
 zlib compressed json : Vector2 => (x, y)
-connect
 
-client send
-{
-    cmd : makeTeam,
-    teamname : teamname
-}
-Server send
-{
-    cmd : teamInfo
-    teamname : teamname,
-    teamid : teamid
-}
+	client send
+	{
+		cmd : makeTeam,
+		teamname : teamname
+	}
+	Server send
+	{
+		cmd : teamInfo
+		teamname : teamname,
+		teamid : teamid
+	}
 
-client send
-{
-    cmd='reqState',
-}
-server send state
-{
-    'cmd': 'gameState',
-    'frameinfo': {k: v for k, v in self.frameinfo.iteritems() if k not in ['stat']},
-    'objplayers': [og.serialize() for og in self.dispgroup['objplayers']],
-    'effectObjs': self.dispgroup['effectObjs'].serialize()
-}
+	client send
+	{
+		cmd='reqState',
+	}
+	server send state
+	{
+		'cmd': 'gameState',
+		'frameinfo': {k: v for k, v in self.frameinfo.iteritems() if k not in ['stat']},
+		'objplayers': [og.serialize() for og in self.dispgroup['objplayers']],
+		'effectObjs': self.dispgroup['effectObjs'].serialize()
+	}
 
-client send
-{
-    cmd='act',
-    team=self.myteam,
-    actions=actionjson,
-}
-server send
-{
-    cmd='actACK',
-}
+	client send
+	{
+		cmd='act',
+		team=self.myteam,
+		actions=actionjson,
+	}
+	server send
+	{
+		cmd='actACK',
+	}
 
-server send to server
-{
-    cmd: del
-}
-
-
-profile memo
-python -m cProfile -o profile.txt  wxgame2client.py -t teama
-view profile
-import pstats
-pstats.Stats('profile.txt').strip_dirs().sort_stats('tottime').print_stats(40)
+	server send to server
+	{
+		cmd: del
+	}

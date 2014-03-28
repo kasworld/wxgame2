@@ -16,16 +16,18 @@ import logging
 import socket
 import multiprocessing
 
-from wxgame2lib import SpriteObj, FPSMixin, SendRecvStatMixin, fromGzJson, ShootingGameMixin
-from wxgame2lib import getFrameTime, putParams2Queue, I32sendrecv, getLogger
-from wxgame2lib import AI2, GameObjectGroup
+from wxgame2lib import SpriteObj, FPSMixin, getLogger, ProfileMixin
+from wxgame2lib import getFrameTime, putParams2Queue, I32ClientProtocol, fromGzJson
+from wxgame2lib import AI2, GameObjectGroup, ShootingGameMixin
 
-Log = getLogger(level=logging.DEBUG, appname='wxgame2npc')
+Log = getLogger(level=logging.WARN, appname='wxgame2npc')
 Log.critical('current loglevel is %s',
              logging.getLevelName(Log.getEffectiveLevel()))
 
+g_profile = False
 
-class TCPGameClient(I32sendrecv):
+
+class TCPGameClient(I32ClientProtocol):
 
     def __str__(self):
         return '[{}:{}]'.format(
@@ -33,10 +35,12 @@ class TCPGameClient(I32sendrecv):
             self.teaminfo,
         )
 
-    def __init__(self, connectTo):
+    def __init__(self, connectTo, recvcallback):
+        def callback(packet):
+            return recvcallback(self, packet)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(connectTo)
-        I32sendrecv.__init__(self, sock)
+        I32ClientProtocol.__init__(self, sock, callback)
 
         self.teaminfo = None
         self.aiactionSent = False
@@ -76,7 +80,7 @@ class TCPGameClient(I32sendrecv):
         )
 
 
-class NPCServer(multiprocessing.Process, ShootingGameMixin, FPSMixin, SendRecvStatMixin):
+class NPCServer(multiprocessing.Process, ShootingGameMixin, FPSMixin):
 
     def prfps(self, repeatinfo):
         print 'fps:', self.frameinfo.stat
@@ -89,6 +93,13 @@ class NPCServer(multiprocessing.Process, ShootingGameMixin, FPSMixin, SendRecvSt
         ShootingGameMixin.applyState(
             self, GameObjectGroup, SpriteObj, loadlist)
 
+    def getStatInfo(self):
+        t = time.time() - self.initedTime
+        return 'recv:{} {}/s send:{} {}/s'.format(
+            self.recvcount, self.recvcount / t,
+            self.sendcount, self.sendcount / t
+        )
+
     def __init__(self, connectTo, aicount):
         multiprocessing.Process.__init__(self)
         if connectTo[0] is None:
@@ -96,8 +107,9 @@ class NPCServer(multiprocessing.Process, ShootingGameMixin, FPSMixin, SendRecvSt
         self.aicount = aicount
 
     def run(self):
-        SendRecvStatMixin.__init__(self)
-        self.FPSInit(getFrameTime, 60)
+        self.profile = ProfileMixin(g_profile)
+        self.profile.begin()
+        self.FPSInit(getFrameTime, 30)
         self.dispgroup = {}
         self.dispgroup['effectObjs'] = GameObjectGroup().initialize(
             gameObj=self, spriteClass=SpriteObj, teamcolor=(0x7f, 0x7f, 0x7f))
@@ -106,11 +118,14 @@ class NPCServer(multiprocessing.Process, ShootingGameMixin, FPSMixin, SendRecvSt
 
         self.quit = False
         self.allInited = False
+        self.recvcount, self.sendcount, self.initedTime = 0, 0, time.time()
         Log.info('NPC server started')
 
         self.clients = []
         for i in range(self.aicount):
-            self.clients.append(TCPGameClient(self.connectTo))
+            self.clients.append(
+                TCPGameClient(self.connectTo, self.process1Cmd)
+            )
 
         self.clients[0].reqState()
 
@@ -121,43 +136,35 @@ class NPCServer(multiprocessing.Process, ShootingGameMixin, FPSMixin, SendRecvSt
             self.sendlist = [
                 s for s in self.clients if s.canSend()]
             inputready, outputready, exceptready = select.select(
-                self.clients, self.sendlist, [], 1.0 / 120)
+                self.clients, self.sendlist, [], 0)
+
+            if len(inputready) == 0 and len(outputready) == 0:
+                self.FPSRun()
+                self.FPSYield()
+                self.thistick = self.frameinfo.thisFrameTime
+
             for i in inputready:
                 try:
-                    if i.recv() == 'complete':
-                        self.updateRecvStat()
-                except RuntimeError as e:
-                    if e.args[0] != "socket connection broken":
-                        raise
+                    r = i.recv()
+                except socket.error:
                     self.closeClient(i)
-                except socket.error as e:
-                    # print traceback.format_exc()
+                if r == 'complete':
+                    self.recvcount += 1
+                elif r == 'disconnected':
                     self.closeClient(i)
 
             for o in outputready:
                 try:
                     if o.send() == 'complete':
-                        self.updateSendStat()
-                except socket.error as e:
-                    # print traceback.format_exc()
+                        self.sendcount += 1
+                except socket.error:
                     self.closeClient(i)
-
-            self.FPSRun()
-            self.FPSYield()
 
         Log.info('ending clientLoop')
         for c in self.clients:
             c.disconnect()
         Log.info('%s', self.getStatInfo())
-
-    def FPSMain(self):
-        self.thistick = self.frameinfo.thisFrameTime
-        self.processCmd()
-
-    def processCmd(self):
-        for client in self.clients:
-            while not client.recvQueue.empty():
-                self.process1Cmd(client)
+        self.profile.end()
 
     def makeClientAIAction(self, client):
         # make AI action
@@ -183,14 +190,8 @@ class NPCServer(multiprocessing.Process, ShootingGameMixin, FPSMixin, SendRecvSt
         )
         return True
 
-    def process1Cmd(self, client):
-        try:
-            cmdDict = client.recvQueue.get_nowait()
-            if cmdDict is None:
-                return
-        except Queue.Empty:
-            return
-        cmdDict = fromGzJson(cmdDict)
+    def process1Cmd(self, client, packet):
+        cmdDict = fromGzJson(packet)
         cmd = cmdDict.get('cmd')
         if cmd == 'gameState':
             client.reqState()
