@@ -557,7 +557,8 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSMixin):
         self.dispgroup['objplayers'] = []
 
     def __init__(self, *args, **kwds):
-        self.conn = kwds.pop('conn')
+        self.connobj = kwds.pop('connobj')
+        self.conn = self.connobj.conn
         self.myteam = None
 
         wx.Control.__init__(self, *args, **kwds)
@@ -673,10 +674,10 @@ class MyFrame(wx.Frame):
 
     def __init__(self, *args, **kwds):
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
-        conn = kwds.pop('conn')
+        connobj = kwds.pop('connobj')
         wx.Frame.__init__(self, *args, **kwds)
         self.gamePannel = ShootingGameClient(
-            self, -1, size=(1000, 1000), conn = conn)
+            self, -1, size=(1000, 1000), connobj = connobj)
         self.gamePannel.framewindow = self
         self.__set_properties()
         self.__do_layout()
@@ -701,7 +702,10 @@ class TCPGameClientMT(threading.Thread):
     def __str__(self):
         return self.conn.protocol.getStatInfo()
 
-    def __init__(self, connectTo):
+    def __init__(self, connectTo, teamname):
+        if connectTo[0] is None:
+            connectTo = ('localhost', connectTo[1])
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(connectTo)
 
@@ -714,6 +718,22 @@ class TCPGameClientMT(threading.Thread):
         })
         Log.info('%s', self)
 
+        if teamname:
+            teamcolor = random.choice(wx.lib.colourdb.getColourInfoList())
+            print 'makeTeam', teamname, teamcolor
+            putParams2Queue(
+                self.conn.sendQueue,
+                cmd='makeTeam',
+                teamname=teamname,
+                teamcolor=teamcolor[1:]
+            )
+        else:  # observer mode
+            print 'observer mode'
+            putParams2Queue(
+                self.conn.sendQueue,
+                cmd='reqState',
+            )
+
     def clientLoop(self):
         try:
             while self.conn.quit is not True:
@@ -721,7 +741,7 @@ class TCPGameClientMT(threading.Thread):
         except RuntimeError as e:
             if e.args[0] != "socket connection broken":
                 raise RuntimeError(e)
-            print e
+            Log.critical('server connection closed')
 
     def shutdown(self):
         self.conn.quit = True
@@ -744,29 +764,13 @@ def runClient():
         '-t', '--teamname'
     )
     args = parser.parse_args()
-    destip, teamname = args.server, args.teamname
-    if destip is None:
-        destip = 'localhost'
-    connectTo = destip, 22517
-    print 'Client start, ', connectTo
 
-    client, client_thread = TCPGameClientMT(connectTo).runService()
+    print 'Client start'
 
-    if teamname:
-        teamcolor = random.choice(wx.lib.colourdb.getColourInfoList())
-        print 'makeTeam', teamname, teamcolor
-        putParams2Queue(
-            client.conn.sendQueue,
-            cmd='makeTeam',
-            teamname=teamname,
-            teamcolor=teamcolor[1:]
-        )
-    else:  # observer mode
-        print 'observer mode'
-        putParams2Queue(
-            client.conn.sendQueue,
-            cmd='reqState',
-        )
+    client, client_thread = TCPGameClientMT(
+        connectTo=(args.server, 22517),
+        teamname = args.teamname
+    ).runService()
 
     def sigstophandler(signum, frame):
         print 'User Termination'
@@ -778,7 +782,7 @@ def runClient():
     app = wx.App()
     frame_1 = MyFrame(
         None, -1, "", size=(1000, 1000),
-        conn= client.conn)
+        connobj= client)
     app.SetTopWindow(frame_1)
     frame_1.Show()
     app.MainLoop()

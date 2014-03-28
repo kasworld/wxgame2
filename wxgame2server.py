@@ -757,12 +757,9 @@ class GameLogicServer(multiprocessing.Process, ShootingGameMixin, FPSMixin, Prof
         objcount = sum([len(a) for a in self.dispgroup['objplayers']])
         self.statObjN.update(objcount)
 
-        # 그룹내의 bounceball 들을 AI automove 한다.
+        # 그룹내의 team 들을 automove 한다.
         for thisTeam in self.dispgroup['objplayers']:
             thisTeam.AutoMoveByTime(self.thistick)
-
-        # process client cmds
-        # self.processClientCmd()
 
         # make collision dictionary
         resultdict, cmpcount = self.makeCollisionDict()
@@ -833,18 +830,5 @@ def runServer():
     tcp_process.join(1)
     npc_process.join(1)
 
-
-def chbench():
-    me, you = makeChannel()
-    st = time.time()
-    count = 1000000
-    for i in xrange(count):
-        me.writeTo('hello')
-        you.readFrom()
-    ed = time.time()
-    print ed - st, count / (ed - st)
-
-
 if __name__ == "__main__":
     runServer()
-    # chbench()

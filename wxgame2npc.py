@@ -14,9 +14,11 @@ import Queue
 import time
 import logging
 import socket
+import multiprocessing
+
 from wxgame2lib import SpriteObj, FPSMixin, SendRecvStatMixin, fromGzJson, ShootingGameMixin
 from wxgame2lib import getFrameTime, putParams2Queue, I32sendrecv, getLogger
-from wxgame2lib import AI2 as GameObjectGroup
+from wxgame2lib import AI2, GameObjectGroup
 
 Log = getLogger(level=logging.DEBUG, appname='wxgame2npc')
 Log.critical('current loglevel is %s',
@@ -74,26 +76,79 @@ class TCPGameClient(I32sendrecv):
         )
 
 
-class NPCServer(ShootingGameMixin, FPSMixin, SendRecvStatMixin):
-
-    def __init__(self, *args, **kwds):
-        self.FPSInit(getFrameTime, 60)
-        self.dispgroup = {}
-        self.dispgroup['effectObjs'] = GameObjectGroup().initialize(
-            gameObj=self, spriteClass=SpriteObj, teamcolor=(0x7f, 0x7f, 0x7f))
-        self.dispgroup['objplayers'] = []
-
-        self.connInit(kwds.pop('connectTo'), kwds.pop('aicount'))
-        SendRecvStatMixin.__init__(self)
-
-        self.registerRepeatFn(self.prfps, 1)
+class NPCServer(multiprocessing.Process, ShootingGameMixin, FPSMixin, SendRecvStatMixin):
 
     def prfps(self, repeatinfo):
         print 'fps:', self.frameinfo.stat
         print 'packet:', self.getStatInfo()
 
     def applyState(self, loadlist):
-        ShootingGameMixin.applyState(self, GameObjectGroup, SpriteObj, loadlist)
+        ShootingGameMixin.applyState(self, AI2, SpriteObj, loadlist)
+
+    def applyState_simple(self, loadlist):
+        ShootingGameMixin.applyState(
+            self, GameObjectGroup, SpriteObj, loadlist)
+
+    def __init__(self, connectTo, aicount):
+        multiprocessing.Process.__init__(self)
+        if connectTo[0] is None:
+            self.connectTo = ('localhost', connectTo[1])
+        self.aicount = aicount
+
+    def run(self):
+        SendRecvStatMixin.__init__(self)
+        self.FPSInit(getFrameTime, 60)
+        self.dispgroup = {}
+        self.dispgroup['effectObjs'] = GameObjectGroup().initialize(
+            gameObj=self, spriteClass=SpriteObj, teamcolor=(0x7f, 0x7f, 0x7f))
+        self.dispgroup['objplayers'] = []
+        self.registerRepeatFn(self.prfps, 1)
+
+        self.quit = False
+        self.allInited = False
+        Log.info('NPC server started')
+
+        self.clients = []
+        for i in range(self.aicount):
+            self.clients.append(TCPGameClient(self.connectTo))
+
+        self.clients[0].reqState()
+
+        Log.info('start clientLoop')
+        self.sendlist = []
+
+        while not self.quit:
+            self.sendlist = [
+                s for s in self.clients if s.canSend()]
+            inputready, outputready, exceptready = select.select(
+                self.clients, self.sendlist, [], 1.0 / 120)
+            for i in inputready:
+                try:
+                    if i.recv() == 'complete':
+                        self.updateRecvStat()
+                except RuntimeError as e:
+                    if e.args[0] != "socket connection broken":
+                        raise
+                    self.closeClient(i)
+                except socket.error as e:
+                    # print traceback.format_exc()
+                    self.closeClient(i)
+
+            for o in outputready:
+                try:
+                    if o.send() == 'complete':
+                        self.updateSendStat()
+                except socket.error as e:
+                    # print traceback.format_exc()
+                    self.closeClient(i)
+
+            self.FPSRun()
+            self.FPSYield()
+
+        Log.info('ending clientLoop')
+        for c in self.clients:
+            c.disconnect()
+        Log.info('%s', self.getStatInfo())
 
     def FPSMain(self):
         self.thistick = self.frameinfo.thisFrameTime
@@ -158,62 +213,15 @@ class NPCServer(ShootingGameMixin, FPSMixin, SendRecvStatMixin):
         else:
             Log.warn('unknown cmd %s', cmdDict)
 
-    def connInit(self, connectTo, aicount):
-        self.quit = False
-        self.allInited = False
-        Log.info('NPC server started')
-
-        if connectTo[0] is None:
-            connectTo = ('localhost', connectTo[1])
-        self.clients = []
-        for i in range(aicount):
-            self.clients.append(TCPGameClient(connectTo))
-
-        self.clients[0].reqState()
-
-    def clientLoop(self):
-        Log.info('start clientLoop')
-        self.sendlist = []
-
-        while not self.quit:
-            self.sendlist = [
-                s for s in self.clients if s.canSend()]
-            inputready, outputready, exceptready = select.select(
-                self.clients, self.sendlist, [], 1.0 / 120)
-            for i in inputready:
-                try:
-                    if i.recv() == 'complete':
-                        self.updateRecvStat()
-                except RuntimeError as e:
-                    if e.args[0] != "socket connection broken":
-                        raise
-                    self.closeClient(i)
-                except socket.error as e:
-                    # print traceback.format_exc()
-                    self.closeClient(i)
-
-            for o in outputready:
-                try:
-                    if o.send() == 'complete':
-                        self.updateSendStat()
-                except socket.error as e:
-                    # print traceback.format_exc()
-                    self.closeClient(i)
-
-            self.FPSRun()
-            self.FPSYield()
-
-        Log.info('ending clientLoop')
-        for c in self.clients:
-            c.disconnect()
-        Log.info('%s', self.getStatInfo())
-
     def closeClient(self, client):
         client.disconnect()
         try:
             self.clients.remove(client)
         except ValueError:
             pass
+        if len(self.clients) == 0:
+            Log.critical('no more client')
+            self.quit = True
 
 
 def runNPC():
@@ -225,18 +233,19 @@ def runNPC():
         '-n', '--aicount',
         default=8, type=int
     )
+    parser.add_argument(
+        '-p', '--processcount',
+        default=1, type=int
+    )
     args = parser.parse_args()
 
     # run main
-    npcs = NPCServer(connectTo=(args.server, 22517), aicount=args.aicount)
-
-    def sigstophandler(signum, frame):
-        print 'User Termination'
-        npcs.quit = True
-        # sys.exit(0)
-    signal.signal(signal.SIGINT, sigstophandler)
-
-    npcs.clientLoop()
+    for i in xrange(args.processcount):
+        npc_process = NPCServer(
+            connectTo=(args.server, 22517),
+            aicount=args.aicount
+        )
+        npc_process.start()
 
 if __name__ == "__main__":
     runNPC()
