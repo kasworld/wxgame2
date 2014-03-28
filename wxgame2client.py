@@ -30,7 +30,7 @@ from wxgame2lib import ShootingGameMixin, Storage
 
 from wxgame2lib import AI2 as GameObjectGroup
 
-Log = getLogger(level=logging.ERROR, appname='wxgame2client')
+Log = getLogger(level=logging.INFO, appname='wxgame2client')
 Log.critical('current loglevel is %s',
              logging.getLevelName(Log.getEffectiveLevel()))
 
@@ -65,15 +65,10 @@ class GameResource(object):
     def makeRotatedImage(image, angle):
         rad = math.radians(-angle)
         xlen, ylen = image.GetWidth(), image.GetHeight()
-        #offset = wx.Point()
-        # ,wx.Point(xlen,ylen) )
         rimage = image.Rotate(rad, (xlen / 2, ylen / 2), True)
-        # rimage =  image.Rotate( rad, (0,0) ,True) #,wx.Point() )
         xnlen, ynlen = rimage.GetWidth(), rimage.GetHeight()
         rsimage = rimage.Size(
             (xlen, ylen), (-(xnlen - xlen) / 2, -(ynlen - ylen) / 2))
-        # print angle, xlen , ylen , xnlen , ynlen , rsimage.GetWidth() ,
-        # rsimage.GetHeight()
         return rsimage
 
     @staticmethod
@@ -579,9 +574,9 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSMixin):
         self.registerRepeatFn(self.prfps, 1)
 
     def prfps(self, repeatinfo):
-        print 'fps:', self.frameinfo.stat
+        Log.info('fps: %s', self.frameinfo.stat)
         if self.conn is not None:
-            print self.conn.protocol.getStatInfo()
+            Log.info('%s', self.conn.protocol.getStatInfo())
 
     def makeFrontObj(self):
         o = ForegroundSprite().initialize(dict(
@@ -665,7 +660,6 @@ class ShootingGameClient(ShootingGameMixin, wx.Control, FPSMixin):
         for o in self.dispgroup['frontgroup']:
             if bgmoved and random.random() < 0.9:
                 o.setAccelVector(o.getAccelVector().addAngle(-angle))
-            # print o #, o.movefnargs
 
         self.Refresh(False)
 
@@ -683,7 +677,7 @@ class MyFrame(wx.Frame):
         self.__do_layout()
 
     def __set_properties(self):
-        self.SetTitle("wxGameFramework %s by kasworld" % Version)
+        self.SetTitle("wxGame2 %s by kasworld" % Version)
         self.gamePannel.SetMinSize((1000, 1000))
 
     def __do_layout(self):
@@ -720,7 +714,7 @@ class TCPGameClientMT(threading.Thread):
 
         if teamname:
             teamcolor = random.choice(wx.lib.colourdb.getColourInfoList())
-            print 'makeTeam', teamname, teamcolor
+            Log.info('makeTeam %s %s', teamname, teamcolor)
             putParams2Queue(
                 self.conn.sendQueue,
                 cmd='makeTeam',
@@ -728,7 +722,7 @@ class TCPGameClientMT(threading.Thread):
                 teamcolor=teamcolor[1:]
             )
         else:  # observer mode
-            print 'observer mode'
+            Log.info('observer mode')
             putParams2Queue(
                 self.conn.sendQueue,
                 cmd='reqState',
@@ -742,6 +736,7 @@ class TCPGameClientMT(threading.Thread):
             if e.args[0] != "socket connection broken":
                 raise RuntimeError(e)
             Log.critical('server connection closed')
+            os.kill(os.getpid(), signal.SIGINT)
 
     def shutdown(self):
         self.conn.quit = True
@@ -765,19 +760,12 @@ def runClient():
     )
     args = parser.parse_args()
 
-    print 'Client start'
+    Log.info('Client start')
 
     client, client_thread = TCPGameClientMT(
         connectTo=(args.server, 22517),
         teamname = args.teamname
     ).runService()
-
-    def sigstophandler(signum, frame):
-        print 'User Termination'
-        client.shutdown()
-        client_thread.join(1)
-        sys.exit(0)
-    signal.signal(signal.SIGINT, sigstophandler)
 
     app = wx.App()
     frame_1 = MyFrame(
@@ -785,9 +773,16 @@ def runClient():
         connobj= client)
     app.SetTopWindow(frame_1)
     frame_1.Show()
+
+    def sigstophandler(signum, frame):
+        frame_1.Close()
+        client.shutdown()
+        client_thread.join(1)
+    signal.signal(signal.SIGINT, sigstophandler)
+
     app.MainLoop()
-    print 'end client'
-    sigstophandler(0, 0)
+
+    Log.info('end client')
 
 
 if __name__ == "__main__":
