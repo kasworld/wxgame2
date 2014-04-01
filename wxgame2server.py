@@ -77,8 +77,6 @@ class TCPServer(multiprocessing.Process):
         self.serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.serversocket.setsockopt(
             socket.IPPROTO_TCP, socket.TCP_NODELAY, True)
-        # bind the socket to a public host,
-        # and a well-known port
         self.serversocket.bind(('0.0.0.0', 22517))
         # become a server socket
         self.serversocket.listen(5)
@@ -120,8 +118,7 @@ class TCPServer(multiprocessing.Process):
                 else:
                     try:
                         r = i.recv()
-                    except socket.error as e:
-                        # print traceback.format_exc()
+                    except socket.error:
                         self.closeClient(i)
                     if r == 'complete':
                         self.recvcount += 1
@@ -135,8 +132,7 @@ class TCPServer(multiprocessing.Process):
                     try:
                         if o.send() == 'complete':
                             self.sendcount += 1
-                    except socket.error as e:
-                        # print traceback.format_exc()
+                    except socket.error:
                         self.closeClient(i)
 
         Log.info('ending serverLoop')
@@ -199,10 +195,6 @@ class NPCServer(multiprocessing.Process, FPSMixin, ShootingGameMixin):
 
     def applyState(self, loadlist):
         ShootingGameMixin.applyState(self, AI2, SpriteObj, loadlist)
-
-    def applyState_test(self, loadlist):
-        ShootingGameMixin.applyState(
-            self, GameObjectGroup, SpriteObj, loadlist)
 
     def reqState(self):
         self.toGameCh.sendQueue.put(
@@ -614,6 +606,7 @@ class GameLogicServer(multiprocessing.Process, ShootingGameMixin, FPSMixin):
 
         # make collision dictionary
         resultdict, cmpcount = self.makeCollisionDict()
+
         self.statCmpN.update(cmpcount)
         # do score
         self.doScore(resultdict)

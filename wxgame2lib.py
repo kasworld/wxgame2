@@ -32,7 +32,7 @@ import logging
 import struct
 
 from euclid import Vector2
-# ======== game lib ============
+# ======== general lib ============
 
 
 def getLogger(level=logging.DEBUG, appname='noname'):
@@ -52,8 +52,8 @@ def getLogger(level=logging.DEBUG, appname='noname'):
     return logger
 
 Log = getLogger(level=logging.ERROR, appname='wxgame2lib')
-Log.critical('current loglevel is %s',
-             logging.getLevelName(Log.getEffectiveLevel()))
+# Log.critical('current loglevel is %s',
+#              logging.getLevelName(Log.getEffectiveLevel()))
 
 if sys.version_info < (2, 7, 0):
     Log.critical('python version 2.7.x or more need')
@@ -258,6 +258,9 @@ class FPSMixin(object):
             remain_ms = 0
         self.frameinfo.remain_ms = remain_ms
 
+    def isFPSRunNeed(self):
+        return (self.frameinfo.frameTimeFn() - self.frameinfo.thisFrameTime) > 1.0 / self.frameinfo.maxFPS
+
     def FPSYield(self):
         if self.frameinfo.remain_ms > 0:
             time.sleep(self.frameinfo.remain_ms / 1000.0)
@@ -438,6 +441,9 @@ class I32ClientProtocol(object):
             self.writebuf,
         )
 
+    def setRecvCallback(self, recvcallback):
+        self.recvcallback = recvcallback
+
     def recv(self):
         """ async recv
         recv completed packet is put to recv packet
@@ -554,6 +560,7 @@ def makeChannel():
     return ChannelPipe(reader1, writer2), ChannelPipe(reader2, writer1)
 
 # ================================
+# for game
 
 
 def updateDict(dest, src):

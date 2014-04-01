@@ -89,10 +89,6 @@ class NPCServer(multiprocessing.Process, ShootingGameMixin, FPSMixin):
     def applyState(self, loadlist):
         ShootingGameMixin.applyState(self, AI2, SpriteObj, loadlist)
 
-    def applyState_simple(self, loadlist):
-        ShootingGameMixin.applyState(
-            self, GameObjectGroup, SpriteObj, loadlist)
-
     def getStatInfo(self):
         t = time.time() - self.initedTime
         return 'recv:{} {}/s send:{} {}/s'.format(
