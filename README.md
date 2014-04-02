@@ -16,6 +16,18 @@
 - python 2.7.x
 - wxpython 2.8.x
 
+
+### twserver.py 
+
+- twisted version game server and npc server
+- run game server with s arg
+- run npc server with int(number of ai npc) arg
+
+### twclient.py
+
+- twisted version wxpython game client 
+- see wxgameclient.py option 
+
 ### wxgame2server.py
 
 - game server
@@ -110,6 +122,12 @@ server process added
 - client get environment info from server and send AI action to serve
 - separated NPC(AI) server, game logic server, client reception server
 
+## update 2014-04-2
+
+twisted version added 
+
+- twservers.py 
+- twclient.py 
 
 
 ## C/S protocol

@@ -21,8 +21,6 @@ from twisted.python import log
 import time
 import math
 import zlib
-import argparse
-import traceback
 import random
 
 from wxgame2lib import Statistics, FPSMixin, getFrameTime
