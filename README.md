@@ -1,5 +1,7 @@
 # wxgame2
 
+# updated project by golang https://github.com/kasworld/gowasm2dgame
+
 ## python game framework using wxpython
 
 - 2d shooting game library
